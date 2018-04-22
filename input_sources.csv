@@ -1,0 +1,5 @@
+det_mode,exam_type,tubex,tubey,targetx,targety,floor_target
+T,Table,6,3,6,3,1
+W,Wall bucky,6,3,3.8,3,0
+C,Cross,6,1,6,3,0
+C2,Off cross,8,3,6,3,0
