@@ -85,7 +85,7 @@ class Controller:
         
         self.exi_fn.set('sample_exi_log.csv')
         self.source_fn.set('input_sources.csv')
-        self.room_fn.set('input_receivers.csv')
+        self.room_fn.set('input_rooms.csv')
         
         self.view.input_frame.exi_entry.configure(textvariable = self.exi_fn)
         self.view.input_frame.source_entry.configure(textvariable = self.source_fn)

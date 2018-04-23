@@ -281,7 +281,7 @@ def make_xraybarr_spectrum_set(exi_fn,
 class Dose:
     def __init__(self,
                  df_fn = 'sample_exi_log.csv',
-                 dfr_fn = 'input_receivers.csv',
+                 dfr_fn = 'input_rooms.csv',
                  dfs_fn='input_sources.csv',
                  att_coeff_fn='input_shielding_coefficients.csv'):
         
