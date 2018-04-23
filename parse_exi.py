@@ -109,6 +109,10 @@ def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp.csv'):
     for i in ogpdf:
         temp = subset.copy()
         temp.det_code = i
+        if i == 'T':
+            temp.SID = df[df.det_mode == 'T'].SID.mean()
+        else:
+            temp.SID = df[df.det_mode == 'W'].SID.mean()
         multiplier = temp.OGP.map(ogpdf[i].to_dict())
         temp[cols] = temp[cols].multiply(multiplier,axis='index')
         df = df.append(temp)
@@ -116,15 +120,6 @@ def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp.csv'):
     df = df[df.mAs != 0]
     df = df[df.det_code != 'X']
     
-    return df
-    
-    
-    
-    
-#    organmap = dict(pd.read_csv(input_ogp_binning_fn).to_dict('sp')['data'])
-#    df['det_submode'] = df.organ.map(organmap)
-#    df.det_submode = df.det_submode.where(df.det_mode == 'X','')
-#    df['det_code'] = df.det_mode.astype(str) + df.det_submode
     return df
 
 
@@ -148,7 +143,7 @@ def import_data(fn = 'sample_exi_log.csv', device_list_fn = 'device_list.csv'):
             .pipe(convert_DAP_to_Gycm2)
             )
     return df
-
+df = import_data()
 #%%
 #Functions that compute potentially useful statistics and values
 def get_usage_during_periods(timestamps,dap):
@@ -336,8 +331,8 @@ class Dose:
                 tube_loc = Point(Srow.tubex,Srow.tubey)
                 target_loc = Point(Srow.targetx,Srow.targety)
                 room_rect = self.rect((Rrow.x1,Rrow.y1),(Rrow.x2,Rrow.y2))
-                output_dic['primary_distance'] = room_rect.exterior.distance(tube_loc)
-                output_dic['secondary_distance'] = room_rect.exterior.distance(target_loc)
+                output_dic['primary_distance'] = room_rect.exterior.distance(tube_loc) + 0.3
+                output_dic['secondary_distance'] = room_rect.exterior.distance(target_loc) + 0.3
         #        output_dic['tertiary_distance'] = room_rect.exterior.distance(target_loc)
                 
                 tube_target_line = LineString([tube_loc,target_loc])
@@ -379,17 +374,28 @@ class Dose:
         return a,b,y
         
     #Dose calculation functions
-    def get_primary_dose(self,DAP,distance,in_beam,transmission):
+    #Take DAP in Gycm^2, area in cm^2, distances in m returns dose in uGy
+    def get_primary_dose(self,
+                         DAP,
+                         beam_area,
+                         d_tube_target,
+                         d_tube_room,
+                         kV,
+                         in_beam = False,
+                         wall_leq = 0,
+                         bucky_leq = 2):
         #DAP is scalar, distance, in_beam and attenuation for each room in array
+        transmission = self.get_transmission(wall_leq + bucky_leq,'Lead',kV)
         if in_beam:
-            return DAP/(distance**2)*transmission
+            return DAP/beam_area * (d_tube_target/d_tube_room)**2 * 1e6 * transmission
         else:
             return 0
     
-    def get_scattered_dose(self,DAP,kV,distance,angle,transmission):
+    def get_scattered_dose(self,DAP,kV,distance,angle,wall_leq = 0):
         #DAP is scalar, distance, in_beam and attenuation for each room in array
         #In: DAP Gycm^2
         #Out: Dose uGy
+        transmission = self.get_transmission(wall_leq,'Lead',kV)
         a = -1.042 * 10**-7
         b = 3.265 * 10**-5
         c = -2.751 * 10**-3
@@ -408,11 +414,13 @@ class Dose:
     def calculate_dose_for_df_row(self,dfg_row,ignore_attenuation = True):
         dfr = self.dfr
         dose_to_room = {}
-        ceiling_height = None
-        barrier_height = None
+#        ceiling_height = None
+#        barrier_height = None
         kV = dfg_row.kV.mean()
         DAP = dfg_row.DAP.sum()
-        mAs = dfg_row.mAs.sum()
+#        mAs = dfg_row.mAs.sum()
+        beam_area = dfg_row.beam_area.mean()
+        SID = dfg_row.SID.mean()/100
 #        pdb.set_trace()
         
         for __, receiver_row in dfr.iterrows():
@@ -423,23 +431,24 @@ class Dose:
             angle = room_data['angle']
             in_p_beam = room_data['in_p_beam']
             if ignore_attenuation:
-                transmission = 1
+                lead_eq = 0
             else:
                 lead_eq = receiver_row.gypsum_thickness/320 + receiver_row.added_attenuation
                 lead_eq = max(lead_eq,0)
-                transmission = self.get_transmission(lead_eq,'Lead',kV)
+#                transmission = self.get_transmission(lead_eq,'Lead',kV)
             
             #Use room data to calculate primary and scatter
-            primary = self.get_primary_dose(DAP,primary_distance,in_p_beam,transmission)
-            scatter = self.get_scattered_dose(DAP,kV,secondary_distance,angle,transmission)
-            tertiary = self.get_tertiary_dose(DAP,secondary_distance,
-                                         ceiling_height,barrier_height,transmission)
-            leakage = self.get_leakage_dose(kV,mAs,primary_distance,transmission)
-            dose = primary + scatter + tertiary + leakage
-            dose_to_room[receiver_row.Zone] = dose
+            room_dose = {}
+            room_dose['primary'] = self.get_primary_dose(DAP,beam_area,SID,primary_distance,kV,in_p_beam,lead_eq)
+            room_dose['scatter'] = self.get_scattered_dose(DAP,kV,secondary_distance,angle,lead_eq)
+#            room_dose['tertiary'] = self.get_tertiary_dose(DAP,secondary_distance,
+#                                         ceiling_height,barrier_height,lead_eq)
+#            room_dose['leakage'] = self.get_leakage_dose(kV,mAs,primary_distance,lead_eq)
+            
+            dose_to_room[receiver_row.Zone] = room_dose
     #        dose_to_room[receiver_row.Zone] =        {'dose':dose,'primary':primary,
     #                    'scatter':scatter,'tertiary':tertiary,'leakage':leakage}
-        return pd.Series(dose_to_room)
+        return pd.DataFrame(dose_to_room)
     
     #Returns dose in uGy, provided DAP is given in Gcm^2
     def calculate_dose(self,ignore_attenuation = True):
@@ -447,7 +456,29 @@ class Dose:
         df = df.groupby(['det_code','kV'])
         output = df.apply(self.calculate_dose_for_df_row, ignore_attenuation)
         output = output*get_dose_rescale_factor(self.df)
+        output.index = output.index.rename('contribution',level = 2)
         return output
+    
+    def save_verbose_data(self,ignore_attenuation = True, output_folder = 'output', output_name = 'test'):
+        doses = self.calculate_dose()
+        
+        dfg = self.df.groupby(['det_code','kV'])
+        DAP, mAs = dfg.DAP.sum(), dfg.mAs.sum()
+        workload = pd.DataFrame([DAP,mAs]).T
+        
+        dose_short = doses.sum(level=2)
+        dose_short = dose_short.T
+        dose_short['total'] = dose_short.sum(axis=1)
+        dose_short = dose_short.T
+        
+        factors = pd.DataFrame({'rescale_factor':[get_dose_rescale_factor(self.df)]})
+        
+        dose_short.to_csv('%s/%s_doses_summary.csv' % (output_folder,output_name))
+        workload.to_csv('%s/%s_workload.csv' % (output_folder,output_name))
+        doses.to_csv('%s/%s_doses.csv' % (output_folder,output_name))
+        factors.to_csv('%s/%s_factors.csv' % (output_folder,output_name))
+        return workload,doses,dose_short,factors
+        
     
     def get_lead_req(self,
                      constraints = {'controlled':2,'public':0.5},
@@ -487,6 +518,7 @@ class Dose:
     
 
 #D = Dose()
+#a,b,c,d = D.save_verbose_data()
 #df = import_data()
 #
 #a,b,c = D.get_lead_req(df,iterations=10)

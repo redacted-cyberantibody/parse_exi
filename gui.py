@@ -45,6 +45,9 @@ class InputFrame(Frame):
         self.xraybarrbtn = Button(self,text = "Create XRAYBARR spectrums from Exi")
         self.xraybarrbtn.grid(columnspan = 3)
         
+        self.verbosebtn = Button(self,text = "Save verbose dose calculations")
+        self.verbosebtn.grid(columnspan = 3)
+        
         
         
 class DataFrame(Frame):
@@ -99,6 +102,9 @@ class Controller:
         self.view.input_frame.dosebtn.bind("<Button-1>",self.get_dose_to_rooms)
         self.view.input_frame.leadbtn.bind("<Button-1>",self.get_lead_required)
         self.view.input_frame.xraybarrbtn.bind("<Button-1>",self.export_for_xraybarr)
+        self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_logs)
+        
+        
         
         self.output_text = StringVar()
         self.view.data_frame.textlabel.configure(textvariable = self.output_text)
@@ -155,14 +161,38 @@ class Controller:
             return
         try:
             pe.make_xraybarr_spectrum_set(self.exi_fn.get(),room_name = room_name, output_folder = output_folder)
-            self.update_output('Exported to XRAYBARR','folder:'+output_folder)
+            self.update_output('Exported for XRAYBARR','folder:'+output_folder)
         except Exception as e:
             self.update_output('Could not export to XRAYBARR:',str(e))
+    
+    def verbose_logs(self,event):
+        output_folder = self.choose_folder()+'/'
+        output_name = simpledialog.askstring("Room name", "Enter an identifier for the X-ray room")
+        if not output_folder:
+            self.update_output('No output folder selected, try again')
+            return
+        if not output_name:
+            self.update_output('No room name input given, try again')
+            return
+        try:
+            self.D
+        except Exception as e:
+            self.update_output('input files not loaded')
+            return
+        try:
+            self.D.save_verbose_data(output_folder = output_folder, output_name = output_name)
+            self.update_output('Saved verbose data logs','folder: %s' % (output_folder))
+        except:
+            self.update_output('Could not generate verbose dose logs')
     
     def run(self):
         self.root.title('Shielding dose calculator')
         self.root.deiconify()
         self.root.mainloop()
+
+
+        
+        
         
 if __name__ == '__main__':
     c = Controller()

@@ -2,6 +2,7 @@
 #My output directories
 report/*
 output/*
+resources/*
 kyle*
 *.spec
 
