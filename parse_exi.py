@@ -98,7 +98,7 @@ def analyse_organ_protocol(df):
     return df
 
 #Use an input file to separate free exposures into floor and wall directed
-def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp2.csv'):
+def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp.csv'):
     df['det_code'] = df.det_mode
     ogpdf = pd.read_csv(input_ogp_binning_fn,index_col = 'OGP')
     mask = df['det_mode'] == 'X'
