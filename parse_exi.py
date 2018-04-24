@@ -9,7 +9,8 @@ Created on Wed Mar 21 09:43:58 2018
 
 import numpy as np
 import pandas as pd
-#from matplotlib import pyplot as plt
+
+from matplotlib import pyplot as plt
 from shapely.geometry import Polygon,Point,box,LinearRing,LineString
 
 #from xlrd import open_workbook
@@ -176,6 +177,8 @@ def get_dose_rescale_factor(df):
     weeks_to_years = 52.143 
     return exi_duration_rescale * weekend_rescale * busy_period_rescale * weeks_to_years
     
+def lead_to_weight(thickness,commercial_weight = 0.44):
+    return (thickness // commercial_weight + 1) * 5
     
 #%%
 #OGP stats analysis functions
@@ -501,6 +504,10 @@ class Dose:
                 ignore_att = True
             #Calculate dose
             doses = self.calculate_dose(ignore_att)
+            if i == 0:
+                self.dfr['raw_dose'] = doses.sum()/1000
+                self.dfr['required_transmission'] = self.dfr.constraint/self.dfr.raw_dose/1000
+        
             #Converts dose for entire Exi log to dose per year in mGy
             #todo: double check this conversion.
             doses = (doses.sum()).T
@@ -512,16 +519,21 @@ class Dose:
             lead = self.get_necessary_shielding(attenuation_required,'Lead',90)
             lead_out.append(lead)
             self.dfr.added_attenuation = self.dfr.added_attenuation + lead
+            self.dfr['wall_weight'] = lead_to_weight(self.dfr.added_attenuation)
+            
+        return self.dfr.added_attenuation,dose_out,lead_out,self.dfr.wall_weight
 
-        return self.dfr.added_attenuation,dose_out,lead_out
 
-    
 
-#D = Dose()
+
+
+
+
+D = Dose()
 #a,b,c,d = D.save_verbose_data()
 #df = import_data()
 #
-#a,b,c = D.get_lead_req(df,iterations=10)
+a,b,c,d = D.get_lead_req(iterations=3)
 
 #leads = []
 #for i in range(12):
@@ -533,29 +545,79 @@ class Dose:
 #%%
 #Sample single 
 
+#Reporting and graphing
+
+def savetext(text,fn = 'test.html'):
+    with open(fn,'w') as f:
+        f.write(text)
+
+class Report:
+    def __init__(self,D,output_folder = 'output/test/'):
+        self.D = D
+        self.output_folder = output_folder
+
+            
+    
+    def OGP_workload_plot(self):
+        pass
+    
+        
+    def room_lead_table(self):
+        '''
+        Create a table for reporting, based on dose calculation results
+        '''
+        headers = {
+        'raw_dose':{'head':'Unattenuated dose (mGy/yr)','format':'{:,.1f}'.format},
+        'constraint':{'head':'Dose constraint (mGy/yr)','format':'{:,.0f}'.format},
+        'required_transmission':{'head':'Barrier transmission','format':'{:,.2f}'.format},
+        'added_attenuation':{'head':'Min. lead eq. (mm)','format':'{:,.2f}'.format},
+        'wall_weight':{'head':'Barrier lead weight (kg/m^2)','format':'{:,.0f}'.format}}
+        
+        key_coltitle = {k:headers[k]['head'] for k in headers.keys()}
+        key_fmt = {k:headers[k]['format'] for k in headers.keys()}
+        coltitle_fmt = {key_coltitle[k]:key_fmt[k] for k in headers.keys()}
+        
+        table = D.dfr.loc[:,headers.keys()].copy()
+#        table.raw_dose = table.raw_dose/1000
+    
+        self.table = table.rename(columns = key_coltitle)
+        self.table.to_excel('')
 
 
+    def source_workload_plots(self):
+        test = pd.pivot_table(df.reset_index(),index = 'kV',columns = 'det_code',values = 'DAP',aggfunc=np.sum)
+        kvs = np.arange(test.index.unique().min(),test.index.unique().max()+1)
+        test = test.loc[kvs]
+        test[test!=test] = 0
+        fig,axes = plt.subplots(nrows = 4,sharex = True,figsize = (6,9))
+        test.plot(ax = axes,subplots = True,drawstyle="steps")
+        #fig.subplots_adjust(wspace=0, hspace=0)
+        fig.tight_layout()
+        fig.text(0.001, 0.5, r'Cumulative DAP (Gycm$^2$)', va='center', rotation='vertical')
+        fig.show()
+        
+
+    def show_room(self):
+        pass
 
 
 '''
-#%%
-gfdsgdf
 
-test = df.apply(calculate_dose, axis = 1, args = [False])
-#Convert to mGy/year
-test2 = (test.sum()/100*12).T
 
-attenuation = dfr['constraint']*1000/test2
 
-lead = att.get_necessary_shielding(attenuation,'Lead',85)
 
-dfr.added_attenuation = dfr.added_attenuation + lead
-#%%
-#return dfr,lead.any()
 
-dfr, incomplete = get_lead_required(df,dfr,dfs,distancemap)
 
-#%%
+#test.plot(subplots = False,drawstyle="steps")
+
+#
+
+#R = Report(D)
+#R.OGP_workload_plot()
+#R.room_lead_table()
+#R.source_workload_plots()
+
+
 dft = pd.DataFrame()
 grouped_df = df.groupby(['organ','view'])
 dft['N'] = grouped_df.kV.count()
@@ -565,72 +627,19 @@ dft['mean_field_size'] = grouped_df.beam_area.mean()
 dft['focus_distance'] = grouped_df.SID.mean()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 #%%
-incomplete = True
-i=0
-while incomplete:
-    i = i+1
-    print(i)
-    dfr, incomplete = get_lead_required(df,dfr,dfs,distancemap)
-    
-
-
-#%%
-
-x = np.arange(40,100)
-#x = np.linspace()
-
-
-y = att.get_necessary_shielding(.1,'Lead',x)
-y = []
-
-mats = ['Lead','Concrete','Gypsum wallboard']
-for mat in mats:
-    y.append(att.get_necessary_shielding(.1,mat,x))
-y[0]
-
-xp = np.hstack((x,x,x))
-y = np.array(y)
-fig,ax = plt.subplots()
-ax.plot(np.array([x,x,x]).T,np.log10(y.T),label = mats)
-ax.legend()
-fig.show()
-
-#plt.plot(x,y)
-
-
-
-
-
-  
-    
-    
-
-
-    
-    
     
 #%%
-OLDPLOTS
+#OLDPLOTS
 #Plotting functions which should be deleted for shipping
 dfogp = get_OGP_stats(df)
-dfogp.to_csv('ogp_stats.csv')
+#dfogp.to_csv('ogp_stats.csv')
 
 dfmode = get_stats_from_grouped_data(df,'det_mode',['DAP','mAs','kV','SID','Clinical EXI','Physical EXI'])
 
 fig,ax = plt.subplots()
+
+
 mAs_by_kV.plot(style='o',ax = ax)
 ax.set_xlabel('kV')
 ax.set_ylabel('Sum mAs')
@@ -751,22 +760,4 @@ ax.set_ylabel('Sum mAs')
 plt.savefig('report/bin/kvspectrum.pdf')
 
 
-#%%
-
-
-#Lets think about calculating dose
-
-
-#For each exposure?
-#For each organ protocol?
-#For each group of organ protocols?
-
-#Can we get a position and 
-
-
-newdf = pd.DataFrame()
-newdf['a'] = df.OGP.copy()
-newdf['b'] = df.kV.copy()
-newdf['c'] = df.mAs.copy()
-#%%
 '''

@@ -5,6 +5,7 @@ output/*
 resources/*
 kyle*
 *.spec
+*.pdf
 
 
 # Byte-compiled / optimized / DLL files
