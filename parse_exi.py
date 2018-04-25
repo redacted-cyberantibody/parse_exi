@@ -611,29 +611,30 @@ class Report:
 #        table.raw_dose = table.raw_dose/1000
     
         self.table = table.rename(columns = key_coltitle)
-        self.table.to_excel('')
+        self.table.to_excel(self.output_folder + 'results_table.xlsx')
 
 
     def source_workload_plots(self):
-        test = pd.pivot_table(df.reset_index(),index = 'kV',columns = 'det_code',values = 'DAP',aggfunc=np.sum)
-        kvs = np.arange(test.index.unique().min(),test.index.unique().max()+1)
-        test = test.loc[kvs]
-        test[test!=test] = 0
-        fig,axes = plt.subplots(nrows = 1,ncols = 4,sharey = True,figsize = (9,4))
-        test.plot(ax = axes,subplots = True,drawstyle="steps")
+        dfp = pd.pivot_table(df.reset_index(),index = 'kV',columns = 'det_code',values = 'DAP',aggfunc=np.sum)
+        kvs = np.arange(dfp.index.unique().min(),dfp.index.unique().max()+1)
+        dfp = dfp.loc[kvs]
+        dfp[dfp!=dfp] = 0
+        fig,axes = plt.subplots(nrows = 4,sharex = True,figsize = (6,9))
+        dfp.plot(ax = axes,subplots = True,drawstyle="steps")
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
         fig.text(0.001, 0.5, r'Cumulative DAP (Gycm$^2$)', va='center', rotation='vertical')
+        fig.savefig(self.output_folder + 'workload_plots.pdf')
         fig.show()
         
 
     def show_room(self):
         pass
 
-R = Report(D)
+#R = Report(D)
 #R.OGP_workload_plot()
 #R.room_lead_table()
-R.source_workload_plots()
+#R.source_workload_plots()
 
 #%%
 '''
@@ -658,7 +659,7 @@ dft['cum_mAs'] = grouped_df.mAs.sum()
 dft['mean_field_size'] = grouped_df.beam_area.mean()
 dft['focus_distance'] = grouped_df.SID.mean()
 
-'''
+
 #%%
 
 #%%
