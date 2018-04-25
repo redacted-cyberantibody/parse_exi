@@ -4,7 +4,7 @@ Created on Wed Mar 21 09:43:58 2018
 
 @author: WilliamCh
 """
-#import pdb
+import pdb
 
 
 import numpy as np
@@ -27,11 +27,6 @@ from shapely.geometry import Polygon,Point,box,LinearRing,LineString
 #os.chdir('C:\\Users\\WilliamCh\\Documents\\Shielding workload') 
 
 #User interface
-
-
-
-
-    
 
 #%%
 #Data import and cleaning functions
@@ -104,7 +99,6 @@ def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp.csv'):
     ogpdf = pd.read_csv(input_ogp_binning_fn,index_col = 'OGP')
     mask = df['det_mode'] == 'X'
     subset = df[mask].copy()
-    
     cols = ['mAs','DAP','Dose']
     
     for i in ogpdf:
@@ -115,15 +109,29 @@ def bin_organ_protocols(df,input_ogp_binning_fn = 'input_ogp.csv'):
         else:
             temp.SID = df[df.det_mode == 'W'].SID.mean()
         multiplier = temp.OGP.map(ogpdf[i].to_dict())
+        ogpdf['organ'] = ogpdf.index.str.split(' ').str[1]
+        ogpdf2 = ogpdf.drop_duplicates(subset = 'organ')
+        ogpdf2.index = ogpdf2.organ
+        ogpdf2.drop(columns = 'organ')
+        multiplier2 = temp.organ.map(ogpdf2[i].to_dict())
+        multmask = multiplier!=multiplier
+        multiplier[multmask] = multiplier2[multmask]
+
+        if i == 'T':
+            multiplier[multiplier != multiplier] = 1
+        else:
+            multiplier[multiplier != multiplier] = 0
         temp[cols] = temp[cols].multiply(multiplier,axis='index')
         df = df.append(temp)
     
-    df = df[df.mAs != 0]
-    df = df[df.det_code != 'X']
+    df = df.loc[df.mAs != 0].copy()
+    df = df.loc[df.det_code != 'X'].copy()
+    
+    goodmask = df.det_code.isin(['W','T','C','C2'])
+#    print(df[~goodmask].count() + ' entries were excluded due to not being recognisable')
+    df = df.loc[goodmask].copy()
     
     return df
-
-
 
 #Hacky function to convert DAP to Gycm2. Consider finesse.
 def convert_DAP_to_Gycm2(df):
@@ -144,7 +152,7 @@ def import_data(fn = 'sample_exi_log.csv', device_list_fn = 'device_list.csv'):
             .pipe(convert_DAP_to_Gycm2)
             )
     return df
-df = import_data()
+df = import_data('2018/FLC_EXI_LOG_20180315_072020.csv')
 #%%
 #Functions that compute potentially useful statistics and values
 def get_usage_during_periods(timestamps,dap):
@@ -424,7 +432,7 @@ class Dose:
 #        mAs = dfg_row.mAs.sum()
         beam_area = dfg_row.beam_area.mean()
         SID = dfg_row.SID.mean()/100
-#        pdb.set_trace()
+
         
         for __, receiver_row in dfr.iterrows():
             #Get data for set room
@@ -451,6 +459,7 @@ class Dose:
             dose_to_room[receiver_row.Zone] = room_dose
     #        dose_to_room[receiver_row.Zone] =        {'dose':dose,'primary':primary,
     #                    'scatter':scatter,'tertiary':tertiary,'leakage':leakage}
+#        pdb.set_trace()
         return pd.DataFrame(dose_to_room)
     
     #Returns dose in uGy, provided DAP is given in Gcm^2
@@ -528,8 +537,8 @@ class Dose:
 
 
 
+D = Dose(df_fn = '2018/FLC_EXI_LOG_20180315_072020.csv',dfr_fn = '2018/input_rooms.csv',dfs_fn = '2018/input_sources.csv')
 
-D = Dose()
 #a,b,c,d = D.save_verbose_data()
 #df = import_data()
 #
@@ -555,11 +564,32 @@ class Report:
     def __init__(self,D,output_folder = 'output/test/'):
         self.D = D
         self.output_folder = output_folder
+        try:
+            os.mkdir(self.output_folder)
+        except:
+            pass
 
             
     
     def OGP_workload_plot(self):
-        pass
+        #Big plot showing all the organ protocol data
+        dfogp = get_OGP_stats(self.D.df)
+        fig,axes = plt.subplots(nrows = 3,ncols = 1)
+        fig.set_size_inches(14,12)
+        
+        mask = dfogp.DAP_sum > dfogp.DAP_sum.quantile(.5)
+        
+        dfogp[mask].N_studies.plot(kind = 'bar', ax = axes[0],sharex = True)
+        axes[0].set_ylabel('Number of studies')
+        dfogp[mask].DAP_sum.plot(kind='bar',ax = axes[1])
+        axes[1].set_ylabel('Total DAP uGy/m^2')
+        dfogp[mask].kV_mean.plot(kind = 'bar', ax = axes[2],sharex = True,yerr=dfogp[mask].kV_std)
+        axes[2].set_ylabel('kVp')
+        axes[2].set_xlabel('Organ protocol')
+        
+        fig.tight_layout()
+        fig.savefig(self.output_folder + 'ogp_stats.pdf')
+        fig.show()
     
         
     def room_lead_table(self):
@@ -589,7 +619,7 @@ class Report:
         kvs = np.arange(test.index.unique().min(),test.index.unique().max()+1)
         test = test.loc[kvs]
         test[test!=test] = 0
-        fig,axes = plt.subplots(nrows = 4,sharex = True,figsize = (6,9))
+        fig,axes = plt.subplots(nrows = 1,ncols = 4,sharey = True,figsize = (9,4))
         test.plot(ax = axes,subplots = True,drawstyle="steps")
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
@@ -600,7 +630,12 @@ class Report:
     def show_room(self):
         pass
 
+R = Report(D)
+#R.OGP_workload_plot()
+#R.room_lead_table()
+R.source_workload_plots()
 
+#%%
 '''
 
 
@@ -612,10 +647,7 @@ class Report:
 
 #
 
-#R = Report(D)
-#R.OGP_workload_plot()
-#R.room_lead_table()
-#R.source_workload_plots()
+
 
 
 dft = pd.DataFrame()
@@ -626,9 +658,9 @@ dft['cum_mAs'] = grouped_df.mAs.sum()
 dft['mean_field_size'] = grouped_df.beam_area.mean()
 dft['focus_distance'] = grouped_df.SID.mean()
 
-
+'''
 #%%
-    
+
 #%%
 #OLDPLOTS
 #Plotting functions which should be deleted for shipping
@@ -658,8 +690,8 @@ fig.savefig('report/bin/kV_spectrum_by_mode.pdf')
 
 
 #%%
-det_modes = ['X','W','T']
-labels = ['Free','Wall','Table']
+det_modes = ['W','T','C']
+labels = ['Wall','Table','Cross']
 
 
 fig,axes = plt.subplots(1,len(det_modes),sharey=True)
@@ -726,27 +758,7 @@ fig.tight_layout()
 fig.savefig('report/bin/Peak_work_times.pdf',fmt='pdf')
 
 #%%
-#Big plot showing all the organ protocol data
 
-fig,axes = plt.subplots(nrows = 3,ncols = 1)
-fig.set_size_inches(14,12)
-
-mask = dfogp.DAP_sum > dfogp.DAP_sum.quantile(.6)
-
-dfogp[mask].N_studies.plot(kind = 'bar', ax = axes[0],sharex = True)
-axes[0].set_ylabel('Number of studies')
-
-dfogp[mask].DAP_sum.plot(kind='bar',ax = axes[1])
-axes[1].set_ylabel('Total DAP uGy/m^2')
-
-dfogp[mask].kV_mean.plot(kind = 'bar', ax = axes[2],sharex = True,yerr=dfogp[mask].kV_std)
-axes[2].set_ylabel('kVp')
-
-axes[2].set_xlabel('Organ protocol')
-
-fig.tight_layout()
-
-fig.savefig('report/bin/ogp_high_usage.pdf')
 
 #%%
 #cumulative mAs delivered for each kV
