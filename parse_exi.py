@@ -265,7 +265,7 @@ def make_xraybarr_spectrum_set(exi_fn,
     df = import_data(exi_fn)
     ratio = get_dose_rescale_factor(df)
     #mAs needs to be in mAmin/week, not year
-    df.mAs = df.mAs * ratio / 52.143
+    df.mAs = df.mAs * ratio
     
 
     
@@ -284,6 +284,35 @@ def make_xraybarr_spectrum_set(exi_fn,
     for cat, mask in mask_dict.items():
         save_xraybarr_spectrum(df,mask,output_folder = output_folder,spectrum_name = '_'.join([room_name,cat]))
 #%%
+#Geometric functions
+def rect(p1,p2):
+    xmin = min(p1[0],p2[0]) 
+    xmax = max(p1[0],p2[0]) 
+    ymin = min(p1[1],p2[1]) 
+    ymax = max(p1[1],p2[1]) 
+    return box(xmin, ymin, xmax, ymax)
+
+def make_rect_column(row):
+    return rect((row['x1'],row['y1']),(row['x2'],row['y2']))
+
+def get_angle_from_lines(l1,l2):
+    l1 = np.array(l1)
+    v1 = l1[0,:]-l1[1,:]
+    l2 = np.array(l2)
+    v2 = l2[0,:]-l2[1,:]
+    return np.arccos(v1.dot(v2)/(sum(v1**2)**.5 * sum(v2**2)**.5))*180/np.pi
+
+def is_room_in_beam(beam_line,room_ext):
+    l = np.array(beam_line)
+    p1 = l[0,:]
+    p2 = l[1,:]
+    v = p2 - p1
+    p2 = p1 + v*1000
+    beam_line_extended = LineString([p1,p2])
+    return beam_line_extended.intersects(room_ext)
+
+def make_point_column(row,xn,yn):
+    return Point(row[xn],row[yn])
 #Use one row of df,dfr,dfs,organmap,distancemap to calculate dose
 #Implements the BIR method for dose calculations
 class Dose:
@@ -305,36 +334,6 @@ class Dose:
         
         self.dmap = self.make_distancemap(self.dfr,self.dfs)
 
-    #Geometric functions
-    def rect(self,p1,p2):
-        xmin = min(p1[0],p2[0]) 
-        xmax = max(p1[0],p2[0]) 
-        ymin = min(p1[1],p2[1]) 
-        ymax = max(p1[1],p2[1]) 
-        return box(xmin, ymin, xmax, ymax)
-    
-    def make_rect_column(self,row):
-        return self.rect((row['x1'],row['y1']),(row['x2'],row['y2']))
-    
-    def get_angle_from_lines(self,l1,l2):
-        l1 = np.array(l1)
-        v1 = l1[0,:]-l1[1,:]
-        l2 = np.array(l2)
-        v2 = l2[0,:]-l2[1,:]
-        return np.arccos(v1.dot(v2)/(sum(v1**2)**.5 * sum(v2**2)**.5))*180/np.pi
-    
-    def is_room_in_beam(self,beam_line,room_ext):
-        l = np.array(beam_line)
-        p1 = l[0,:]
-        p2 = l[1,:]
-        v = p2 - p1
-        p2 = p1 + v*1000
-        beam_line_extended = LineString([p1,p2])
-        return beam_line_extended.intersects(room_ext)
-    
-    def make_point_column(self,row,xn,yn):
-        return Point(row[xn],row[yn])
-
     def make_distancemap(self,dfr,dfs):
         distancemap = {}
         for i, Srow in dfs.iterrows():
@@ -343,7 +342,7 @@ class Dose:
                 output_dic = {}
                 tube_loc = Point(Srow.tubex,Srow.tubey)
                 target_loc = Point(Srow.targetx,Srow.targety)
-                room_rect = self.rect((Rrow.x1,Rrow.y1),(Rrow.x2,Rrow.y2))
+                room_rect = rect((Rrow.x1,Rrow.y1),(Rrow.x2,Rrow.y2))
                 output_dic['primary_distance'] = room_rect.exterior.distance(tube_loc) + 0.3
                 output_dic['secondary_distance'] = room_rect.exterior.distance(target_loc) + 0.3
         #        output_dic['tertiary_distance'] = room_rect.exterior.distance(target_loc)
@@ -356,15 +355,16 @@ class Dose:
                     room_closest_point_projection = rect_ext.project(target_loc)
                     room_closest_point = rect_ext.interpolate(room_closest_point_projection)
                     target_room_line = LineString([target_loc,room_closest_point])
-                    output_dic['angle'] = self.get_angle_from_lines(tube_target_line,target_room_line)
+                    output_dic['angle'] = get_angle_from_lines(tube_target_line,target_room_line)
         
                 if Srow.floor_target:
                     output_dic['in_p_beam'] = False
                 else:
-                    output_dic['in_p_beam'] = self.is_room_in_beam(tube_target_line,rect_ext)
+                    output_dic['in_p_beam'] = is_room_in_beam(tube_target_line,rect_ext)
                 
                 distancemap[Srow.det_mode][Rrow.Zone] = output_dic
         return distancemap
+    
     def export_distancemap(self,output_folder = False):
         dmap = {(outerKey, innerKey): values for outerKey, innerDict in self.dmap.items() for innerKey, values in innerDict.items()}
         dmap = pd.DataFrame(dmap).T.swaplevel(0,1,0).sort_index(0)
