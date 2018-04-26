@@ -152,7 +152,6 @@ def import_data(fn = 'sample_exi_log.csv', device_list_fn = 'device_list.csv'):
             .pipe(convert_DAP_to_Gycm2)
             )
     return df
-df = import_data('2018/FLC_EXI_LOG_20180315_072020.csv')
 #%%
 #Functions that compute potentially useful statistics and values
 def get_usage_during_periods(timestamps,dap):
@@ -177,12 +176,16 @@ def get_ratio_highest_usage_to_total(timestamps,dap):
     __,dapmax = find_highest_usage_period(timestamps,dap)
     return dapmax/sum(dap)
 
-def get_dose_rescale_factor(df):
+def get_dose_rescale_factor(df,breakdown = False):
     #rescale_factors
     exi_duration_rescale = 7*24*60*60/(df.timestamp.iloc[-1]-df.timestamp.iloc[0]).total_seconds()
     weekend_rescale = 5/7
     busy_period_rescale = get_ratio_highest_usage_to_total(df.timestamp,df.DAP)
-    weeks_to_years = 52.143 
+    weeks_to_years = 52.143
+    if breakdown:
+        return {'exi_duration_rescale':exi_duration_rescale,
+                'weekend_rescale':weekend_rescale,
+                'busy_period_rescale':busy_period_rescale}
     return exi_duration_rescale * weekend_rescale * busy_period_rescale * weeks_to_years
     
 def lead_to_weight(thickness,commercial_weight = 0.44):
@@ -205,8 +208,6 @@ def get_OGP_stats(df):
     value_cols = ['DAP','mAs','kV','SID','Clinical EXI','Physical EXI']
     pivot_col = 'OGP'
     return get_stats_from_grouped_data(df,pivot_col,value_cols)
-    
-    
     
 #%%
 #Xraybarr integration functions
@@ -432,7 +433,6 @@ class Dose:
 #        mAs = dfg_row.mAs.sum()
         beam_area = dfg_row.beam_area.mean()
         SID = dfg_row.SID.mean()/100
-
         
         for __, receiver_row in dfr.iterrows():
             #Get data for set room
@@ -446,7 +446,6 @@ class Dose:
             else:
                 lead_eq = receiver_row.gypsum_thickness/320 + receiver_row.added_attenuation
                 lead_eq = max(lead_eq,0)
-#                transmission = self.get_transmission(lead_eq,'Lead',kV)
             
             #Use room data to calculate primary and scatter
             room_dose = {}
@@ -455,11 +454,7 @@ class Dose:
 #            room_dose['tertiary'] = self.get_tertiary_dose(DAP,secondary_distance,
 #                                         ceiling_height,barrier_height,lead_eq)
 #            room_dose['leakage'] = self.get_leakage_dose(kV,mAs,primary_distance,lead_eq)
-            
             dose_to_room[receiver_row.Zone] = room_dose
-    #        dose_to_room[receiver_row.Zone] =        {'dose':dose,'primary':primary,
-    #                    'scatter':scatter,'tertiary':tertiary,'leakage':leakage}
-#        pdb.set_trace()
         return pd.DataFrame(dose_to_room)
     
     #Returns dose in uGy, provided DAP is given in Gcm^2
@@ -532,34 +527,15 @@ class Dose:
             
         return self.dfr.added_attenuation,dose_out,lead_out,self.dfr.wall_weight
 
-
-
-
-
-
-D = Dose(df_fn = '2018/FLC_EXI_LOG_20180315_072020.csv',dfr_fn = '2018/input_rooms.csv',dfs_fn = '2018/input_sources.csv')
+#D = Dose(df_fn = '2018/FLC_EXI_LOG_20180315_072020.csv',dfr_fn = '2018/input_rooms.csv',dfs_fn = '2018/input_sources.csv')
 
 #a,b,c,d = D.save_verbose_data()
 #df = import_data()
 #
-a,b,c,d = D.get_lead_req(iterations=3)
+#a,b,c,d = D.get_lead_req(iterations=3)
 
-#leads = []
-#for i in range(12):
-#    leads.append(get_lead_req(df,D))
-#    D.dfr.added_attenuation = D.dfr.added_attenuation + leads[i]
-##    D.dfr[D.dfr]
-#leads2 = np.array(leads)
-#plt.plot(leads2[1:,:])
 #%%
-#Sample single 
-
 #Reporting and graphing
-
-def savetext(text,fn = 'test.html'):
-    with open(fn,'w') as f:
-        f.write(text)
-
 class Report:
     def __init__(self,D,output_folder = 'output/test/'):
         self.D = D
@@ -569,8 +545,6 @@ class Report:
         except:
             pass
 
-            
-    
     def OGP_workload_plot(self):
         #Big plot showing all the organ protocol data
         dfogp = get_OGP_stats(self.D.df)
@@ -590,7 +564,6 @@ class Report:
         fig.tight_layout()
         fig.savefig(self.output_folder + 'ogp_stats.pdf')
         fig.show()
-    
         
     def room_lead_table(self):
         '''
@@ -638,12 +611,6 @@ class Report:
 
 #%%
 '''
-
-
-
-
-
-
 #test.plot(subplots = False,drawstyle="steps")
 
 #
