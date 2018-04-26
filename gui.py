@@ -147,7 +147,8 @@ class Controller:
             self.D
         except Exception as e:
             self.update_output('input files not loaded')
-        a,b,c = self.D.get_lead_req()
+        a,b,c,d = self.D.get_lead_req(iterations = 3)
+        #self.D.dfr[['added_attenuation','wall_weight']]
         self.update_output('Lead required (mm)',a)
         
     def export_for_xraybarr(self,event):
@@ -161,7 +162,7 @@ class Controller:
             return
         try:
             pe.make_xraybarr_spectrum_set(self.exi_fn.get(),room_name = room_name, output_folder = output_folder)
-            self.update_output('Exported for XRAYBARR','folder:'+output_folder)
+            self.update_output('Exported for XRAYBARR','folder: '+output_folder)
         except Exception as e:
             self.update_output('Could not export to XRAYBARR:',str(e))
     
