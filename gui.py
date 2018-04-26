@@ -42,6 +42,9 @@ class InputFrame(Frame):
         self.leadbtn = Button(self,text = "Lead requirement")
         self.leadbtn.grid(columnspan = 3)
         
+        self.reportbtn = Button(self,text = "Save plots")
+        self.reportbtn.grid(columnspan = 3)        
+        
         self.xraybarrbtn = Button(self,text = "Create XRAYBARR spectrums from Exi")
         self.xraybarrbtn.grid(columnspan = 3)
         
@@ -103,6 +106,7 @@ class Controller:
         self.view.input_frame.leadbtn.bind("<Button-1>",self.get_lead_required)
         self.view.input_frame.xraybarrbtn.bind("<Button-1>",self.export_for_xraybarr)
         self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_logs)
+        self.view.input_frame.reportbtn.bind("<Button-1>",self.produce_report)
         
         
         
@@ -189,6 +193,18 @@ class Controller:
             self.update_output('Saved verbose data logs','folder: %s' % (output_folder))
         except:
             self.update_output('Could not generate verbose dose logs')
+    
+    def produce_report(self,event):
+        output_folder = self.choose_folder()+'/'
+        if not output_folder:
+            self.update_output('No output folder selected, try again')
+            return
+        try:
+            self.pe.Report(self.D)
+        except:
+            self.update_output('Could not produce reports')
+        
+    
     
     def run(self):
         self.root.title('Shielding dose calculator')

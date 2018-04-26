@@ -484,7 +484,7 @@ class Dose:
         dose_short['total'] = dose_short.sum(axis=1)
         dose_short = dose_short.T
         
-        factors = pd.DataFrame(get_dose_rescale_factor(self.df,True))
+        factors = pd.Series(get_dose_rescale_factor(self.df,True))
         
         dose_short.to_csv('%s/%s_doses_summary.csv' % (output_folder,output_name))
         workload.to_csv('%s/%s_workload.csv' % (output_folder,output_name))
@@ -495,16 +495,10 @@ class Dose:
         
     
     def get_lead_req(self,
-                     iterations = 1):
+                     iterations = 3):
         #Start from 0 attenuation
         self.dfr.added_attenuation = 0
-        
-        #Constraints in mGy/yr
-        #self.dfr['constraint'] = self.dfr.Category.map(constraints) / self.dfr.Occupancy
-        #dose_rescale_factor = get_dose_rescale_factor(self.df)
     
-        #Map constraint categories, and convert to mGy/yr given:    
-        #def get_lead_required(df,dfr,dfs,distancemap):
         dose_out = []
         lead_out = []
         for i in range(iterations):
@@ -515,8 +509,8 @@ class Dose:
             #Calculate dose
             doses = self.calculate_dose(ignore_att)
             if i == 0:
-                self.dfr['raw_dose'] = doses.sum()/1000
-                self.dfr['required_transmission'] = self.dfr.constraint/self.dfr.raw_dose/1000
+                self.dfr['raw_dose'] = doses.sum()
+                self.dfr['required_transmission'] = self.dfr.Constraint/self.dfr.raw_dose
         
             #Converts dose for entire Exi log to dose per week in uGy
             #todo: double check this conversion.
@@ -524,7 +518,7 @@ class Dose:
             doses = doses
             dose_out.append(doses)
             #Compare to constraints    
-            attenuation_required = self.dfr['constraint'] / doses
+            attenuation_required = self.dfr['Constraint'] / doses
             #Compute an equivalent lead requirement
             lead = self.get_necessary_shielding(attenuation_required,'Lead',90)
             lead_out.append(lead)
@@ -550,6 +544,8 @@ class Report:
             os.mkdir(self.output_folder)
         except:
             pass
+        if ~self.D.dfr.added_attenuation.any():
+            self.D.get_lead_req(iterations = 3)
 
     def OGP_workload_plot(self):
         #Big plot showing all the organ protocol data
@@ -576,8 +572,8 @@ class Report:
         Create a table for reporting, based on dose calculation results
         '''
         headers = {
-        'raw_dose':{'head':'Unattenuated dose (mGy/yr)','format':'{:,.1f}'.format},
-        'constraint':{'head':'Dose constraint (mGy/yr)','format':'{:,.0f}'.format},
+        'raw_dose':{'head':'Unattenuated dose (uGy/wk)','format':'{:,.1f}'.format},
+        'Constraint':{'head':'Dose constraint (uGy/wk)','format':'{:,.0f}'.format},
         'required_transmission':{'head':'Barrier transmission','format':'{:,.2f}'.format},
         'added_attenuation':{'head':'Min. lead eq. (mm)','format':'{:,.2f}'.format},
         'wall_weight':{'head':'Barrier lead weight (kg/m^2)','format':'{:,.0f}'.format}}
@@ -598,7 +594,12 @@ class Report:
         kvs = np.arange(dfp.index.unique().min(),dfp.index.unique().max()+1)
         dfp = dfp.loc[kvs]
         dfp[dfp!=dfp] = 0
-        fig,axes = plt.subplots(nrows = 4,sharex = True,figsize = (6,9))
+        namemap = self.D.dfs[['det_mode','exam_type']]
+        namemap.index = namemap.det_mode
+        namemap = namemap.exam_type.to_dict()
+        dfp.rename(columns = namemap)
+        
+        fig,axes = plt.subplots(nrows = len(dfp.columns),sharex = True,figsize = (6,len(dfp.columns)*3))
         dfp.plot(ax = axes,subplots = True,drawstyle="steps")
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
@@ -610,10 +611,15 @@ class Report:
     def show_room(self):
         pass
 
-#R = Report(D)
-#R.OGP_workload_plot()
-#R.room_lead_table()
-#R.source_workload_plots()
+#%%
+D = Dose()
+D.get_lead_req(iterations =1)
+D.save_verbose_data()
+D.export_distancemap()
+R = Report(D)
+R.OGP_workload_plot()
+R.room_lead_table()
+R.source_workload_plots()
 
 #%%
 '''
