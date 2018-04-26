@@ -181,12 +181,13 @@ def get_dose_rescale_factor(df,breakdown = False):
     exi_duration_rescale = 7*24*60*60/(df.timestamp.iloc[-1]-df.timestamp.iloc[0]).total_seconds()
     weekend_rescale = 5/7
     busy_period_rescale = get_ratio_highest_usage_to_total(df.timestamp,df.DAP)
-    weeks_to_years = 52.143
+    rescale_factor = exi_duration_rescale * weekend_rescale * busy_period_rescale
     if breakdown:
         return {'exi_duration_rescale':exi_duration_rescale,
                 'weekend_rescale':weekend_rescale,
-                'busy_period_rescale':busy_period_rescale}
-    return exi_duration_rescale * weekend_rescale * busy_period_rescale * weeks_to_years
+                'busy_period_rescale':busy_period_rescale,
+                'total':rescale_factor}
+    return rescale_factor
     
 def lead_to_weight(thickness,commercial_weight = 0.44):
     return (thickness // commercial_weight + 1) * 5
@@ -364,7 +365,12 @@ class Dose:
                 
                 distancemap[Srow.det_mode][Rrow.Zone] = output_dic
         return distancemap
-
+    def export_distancemap(self,output_folder = False):
+        dmap = {(outerKey, innerKey): values for outerKey, innerDict in self.dmap.items() for innerKey, values in innerDict.items()}
+        dmap = pd.DataFrame(dmap).T.swaplevel(0,1,0).sort_index(0)
+        if output_folder:
+            dmap.to_csv(output_folder + 'distancemap.csv')
+        return dmap
     #Transmission calculation functions
     def get_transmission(self, thickness, material, kV):
         a,b,y = self.get_shielding_coefficients(material,kV)
@@ -478,23 +484,23 @@ class Dose:
         dose_short['total'] = dose_short.sum(axis=1)
         dose_short = dose_short.T
         
-        factors = pd.DataFrame({'rescale_factor':[get_dose_rescale_factor(self.df)]})
+        factors = pd.DataFrame(get_dose_rescale_factor(self.df,True))
         
         dose_short.to_csv('%s/%s_doses_summary.csv' % (output_folder,output_name))
         workload.to_csv('%s/%s_workload.csv' % (output_folder,output_name))
         doses.to_csv('%s/%s_doses.csv' % (output_folder,output_name))
         factors.to_csv('%s/%s_factors.csv' % (output_folder,output_name))
+        self.export_distancemap().to_csv('%s/%s_distances.csv' % (output_folder,output_name))
         return workload,doses,dose_short,factors
         
     
     def get_lead_req(self,
-                     constraints = {'controlled':2,'public':0.5},
                      iterations = 1):
         #Start from 0 attenuation
         self.dfr.added_attenuation = 0
         
         #Constraints in mGy/yr
-        self.dfr['constraint'] = self.dfr.Category.map(constraints) / self.dfr.Occupancy
+        #self.dfr['constraint'] = self.dfr.Category.map(constraints) / self.dfr.Occupancy
         #dose_rescale_factor = get_dose_rescale_factor(self.df)
     
         #Map constraint categories, and convert to mGy/yr given:    
@@ -512,10 +518,10 @@ class Dose:
                 self.dfr['raw_dose'] = doses.sum()/1000
                 self.dfr['required_transmission'] = self.dfr.constraint/self.dfr.raw_dose/1000
         
-            #Converts dose for entire Exi log to dose per year in mGy
+            #Converts dose for entire Exi log to dose per week in uGy
             #todo: double check this conversion.
             doses = (doses.sum()).T
-            doses = doses / 1000# * dose_rescale_factor
+            doses = doses
             dose_out.append(doses)
             #Compare to constraints    
             attenuation_required = self.dfr['constraint'] / doses

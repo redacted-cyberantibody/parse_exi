@@ -139,8 +139,8 @@ class Controller:
         except Exception as e:
             self.update_output('input files not loaded')
         a = self.D.calculate_dose()
-        self.update_output('Yearly dose (mGy)',
-                            a.sum()/1000)
+        self.update_output('Weekly dose (uGy)',
+                            a.sum())
     
     def get_lead_required(self,event):
         try:
@@ -165,6 +165,10 @@ class Controller:
             self.update_output('Exported for XRAYBARR','folder: '+output_folder)
         except Exception as e:
             self.update_output('Could not export to XRAYBARR:',str(e))
+        try:
+            self.D.export_distancemap(output_folder)
+        except:
+            pass
     
     def verbose_logs(self,event):
         output_folder = self.choose_folder()+'/'
