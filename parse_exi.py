@@ -597,7 +597,7 @@ class Report:
         namemap = self.D.dfs[['det_mode','exam_type']]
         namemap.index = namemap.det_mode
         namemap = namemap.exam_type.to_dict()
-        dfp.rename(columns = namemap)
+        dfp = dfp.rename(columns = namemap)
         
         fig,axes = plt.subplots(nrows = len(dfp.columns),sharex = True,figsize = (6,len(dfp.columns)*3))
         dfp.plot(ax = axes,subplots = True,drawstyle="steps")
@@ -612,14 +612,15 @@ class Report:
         pass
 
 #%%
-D = Dose()
-D.get_lead_req(iterations =1)
-D.save_verbose_data()
-D.export_distancemap()
-R = Report(D)
-R.OGP_workload_plot()
-R.room_lead_table()
-R.source_workload_plots()
+if __name__ == '__main__':
+    D = Dose()
+    D.get_lead_req(iterations =1)
+    D.save_verbose_data()
+    D.export_distancemap()
+    R = Report(D)
+    R.OGP_workload_plot()
+    R.room_lead_table()
+    R.source_workload_plots()
 
 #%%
 '''
