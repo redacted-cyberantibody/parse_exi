@@ -586,7 +586,7 @@ class Report:
         key_fmt = {k:headers[k]['format'] for k in headers.keys()}
         coltitle_fmt = {key_coltitle[k]:key_fmt[k] for k in headers.keys()}
         
-        table = D.dfr.loc[:,headers.keys()].copy()
+        table = self.D.dfr.loc[:,headers.keys()].copy()
 #        table.raw_dose = table.raw_dose/1000
     
         self.table = table.rename(columns = key_coltitle)
