@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from matplotlib import pyplot as plt
+from matplotlib import cm
 from shapely.geometry import Point,box,LinearRing,LineString
 from descartes import PolygonPatch
 import os
@@ -560,8 +561,8 @@ def add_point_to_ax(ax,point,text,textoffset = -.3):
             verticalalignment='center',
             horizontalalignment='center')
 
-def add_rect_to_ax(ax,rect,text):
-    patch = PolygonPatch(rect)
+def add_rect_to_ax(ax,rect,text,color):
+    patch = PolygonPatch(rect,color = color)
     ax.add_patch(patch)
     a = np.array(rect.bounds).reshape(2,2)
     text_position = (a[0,:]+a[1,:])/2
@@ -668,9 +669,13 @@ class Report:
                   max(self.D.dfr.y1.max(),self.D.dfr.y2.max()))
 
         fig,ax = plt.subplots(figsize = (9,9))
-        
+                
         for i, row in self.D.dfr.iterrows():
-            add_rect_to_ax(ax,row.rect,row.Zone)
+            try:
+                color = cm.viridis.colors[int(row.wall_weight)*10]
+            except:
+                color = cm.tab10.colors[0]
+            add_rect_to_ax(ax,row.rect,row.Zone,color)
             
         for i,row in self.D.dfs.iterrows():
             add_arrow_to_ax(ax,row.tubeP,row.targetP,row.det_mode)
@@ -687,10 +692,10 @@ class Report:
 if __name__ == '__main__':
     D = Dose()
     D.get_lead_req(iterations =1)
-    D.save_verbose_data()
-    D.export_distancemap()
-    R = Report(D,output_folder = '2018/')
+#    D.save_verbose_data()
+#    D.export_distancemap()
+    R = Report(D)
 #    R.OGP_workload_plot()
 #    R.room_lead_table()
 #    R.source_workload_plots()
-#    R.show_room()
+    R.show_room()
