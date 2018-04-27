@@ -8,6 +8,10 @@ from shapely.geometry import Polygon,Point,box,LinearRing,LineString
 import numpy as np
 import pandas as pd
 
+import matplotlib.backends.tkagg as tkagg
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+
 import parse_exi as pe
 
 class InputFrame(Frame):
@@ -42,8 +46,18 @@ class InputFrame(Frame):
         self.leadbtn = Button(self,text = "Lead requirement")
         self.leadbtn.grid(columnspan = 3)
         
+        self.roombtn = Button(self,text = "Show room")
+        self.roombtn.grid(row = 7, column = 0)        
+        
+        self.workloadbtn = Button(self,text = "Workload")
+        self.workloadbtn.grid(row = 7, column = 1) 
+        
+        self.ogpbtn = Button(self,text = "OGP stats")
+        self.ogpbtn.grid(row = 7, column = 2)
+        
         self.reportbtn = Button(self,text = "Save plots")
-        self.reportbtn.grid(columnspan = 3)        
+        self.reportbtn.grid(columnspan = 3)  
+        
         
         self.xraybarrbtn = Button(self,text = "Create XRAYBARR spectrums from Exi")
         self.xraybarrbtn.grid(columnspan = 3)
@@ -52,7 +66,7 @@ class InputFrame(Frame):
         self.verbosebtn.grid(columnspan = 3)
         
         
-        
+         
 class DataFrame(Frame):
     def __init__ (self, master):
         Frame.__init__ (self, master)
@@ -60,9 +74,6 @@ class DataFrame(Frame):
         self.textlabel.pack()
         self.datalabel = Label(self)
         self.datalabel.pack()
-        
-        
-
         
         
 class View(Frame):
@@ -107,8 +118,13 @@ class Controller:
         self.view.input_frame.xraybarrbtn.bind("<Button-1>",self.export_for_xraybarr)
         self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_logs)
         self.view.input_frame.reportbtn.bind("<Button-1>",self.produce_report)
+        self.view.input_frame.roombtn.bind("<Button-1>",self.show_room)
+        self.view.input_frame.workloadbtn.bind("<Button-1>",self.show_workload)
+        self.view.input_frame.ogpbtn.bind("<Button-1>",self.show_OGP_stats)
         
         
+        
+           
         
         self.output_text = StringVar()
         self.view.data_frame.textlabel.configure(textvariable = self.output_text)
@@ -152,6 +168,7 @@ class Controller:
         except Exception as e:
             self.update_output('input files not loaded')
         a,b,c,d = self.D.get_lead_req(iterations = 3)
+        
         #self.D.dfr[['added_attenuation','wall_weight']]
         self.update_output('Lead required (mm)',a)
         
@@ -199,11 +216,20 @@ class Controller:
         if not output_folder:
             self.update_output('No output folder selected, try again')
             return
-        try:
-            self.pe.Report(self.D)
-        except:
-            self.update_output('Could not produce reports')
-        
+        #try:
+        pe.Report(self.D,output_folder = output_folder)
+        #except:
+        #    self.update_output('Could not produce reports')
+    
+    
+    def show_room(self,event):
+        pe.Report(self.D).show_room()
+    
+    def show_workload(self,event):
+        pe.Report(self.D).source_workload_plots()
+    
+    def show_OGP_stats(self,event):
+        pe.Report(self.D).OGP_workload_plot()
     
     
     def run(self):

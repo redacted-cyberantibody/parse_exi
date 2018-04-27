@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 
 from matplotlib import pyplot as plt
-from shapely.geometry import Polygon,Point,box,LinearRing,LineString
+from shapely.geometry import Point,box,LinearRing,LineString
 from descartes import PolygonPatch
+import os
 
 #from xlrd import open_workbook
 #from xlsxwriter.utility import xl_rowcol_to_cell as rc_c
@@ -580,7 +581,7 @@ def add_arrow_to_ax(ax,P1,P2,text):
         ax.text(*(p1+.25),text)
 #Reporting and graphing
 class Report:
-    def __init__(self,D,output_folder = 'output/test/'):
+    def __init__(self,D,output_folder = False):
         self.D = D
         self.output_folder = output_folder
         try:
@@ -589,6 +590,11 @@ class Report:
             pass
         if ~self.D.dfr.added_attenuation.any():
             self.D.get_lead_req(iterations = 3)
+        if output_folder:
+            self.OGP_workload_plot()
+            self.room_lead_table()
+            self.source_workload_plots()
+            self.show_room()
 
     def OGP_workload_plot(self):
         #Big plot showing all the organ protocol data
@@ -607,8 +613,10 @@ class Report:
         axes[2].set_xlabel('Organ protocol')
         
         fig.tight_layout()
-        fig.savefig(self.output_folder + 'ogp_stats.pdf')
-        fig.show()
+        if self.output_folder:
+            fig.savefig(self.output_folder + 'ogp_stats.pdf')
+        else:
+            fig.show()
         
     def room_lead_table(self):
         '''
@@ -629,11 +637,12 @@ class Report:
 #        table.raw_dose = table.raw_dose/1000
     
         self.table = table.rename(columns = key_coltitle)
-        self.table.to_excel(self.output_folder + 'results_table.xlsx')
+        if self.output_folder:
+            self.table.to_excel(self.output_folder + 'results_table.xlsx')
 
 
     def source_workload_plots(self):
-        dfp = pd.pivot_table(df.reset_index(),index = 'kV',columns = 'det_code',values = 'DAP',aggfunc=np.sum)
+        dfp = pd.pivot_table(self.D.df.reset_index(),index = 'kV',columns = 'det_code',values = 'DAP',aggfunc=np.sum)
         kvs = np.arange(dfp.index.unique().min(),dfp.index.unique().max()+1)
         dfp = dfp.loc[kvs]
         dfp[dfp!=dfp] = 0
@@ -647,28 +656,32 @@ class Report:
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
         fig.text(0.001, 0.5, r'Cumulative DAP (Gycm$^2$)', va='center', rotation='vertical')
-        fig.savefig(self.output_folder + 'workload_plots.pdf')
-        fig.show()
+        if self.output_folder:
+            fig.savefig(self.output_folder + 'workload_plots.pdf')
+        else:
+            fig.show()
         
-
     def show_room(self):
-        xrange = (min(D.dfr.x1.min(),D.dfr.x2.min()),
-                  max(D.dfr.x1.max(),D.dfr.x2.max()))
-        yrange = (min(D.dfr.y1.min(),D.dfr.y2.min()),
-                  max(D.dfr.y1.max(),D.dfr.y2.max()))
+        xrange = (min(self.D.dfr.x1.min(),self.D.dfr.x2.min()),
+                  max(self.D.dfr.x1.max(),self.D.dfr.x2.max()))
+        yrange = (min(self.D.dfr.y1.min(),self.D.dfr.y2.min()),
+                  max(self.D.dfr.y1.max(),self.D.dfr.y2.max()))
 
         fig,ax = plt.subplots(figsize = (9,9))
         
-        for i, row in D.dfr.iterrows():
+        for i, row in self.D.dfr.iterrows():
             add_rect_to_ax(ax,row.rect,row.Zone)
             
-        for i,row in D.dfs.iterrows():
+        for i,row in self.D.dfs.iterrows():
             add_arrow_to_ax(ax,row.tubeP,row.targetP,row.det_mode)
         ax.set_title('General Polygon')
         ax.set_xlim(*xrange)
         ax.set_ylim(*yrange)
         ax.set_aspect(1)
-        fig.show()
+        if self.output_folder:
+            fig.savefig(self.output_folder + 'room_layout.pdf')
+        else:
+            fig.show()
 
 #%%
 if __name__ == '__main__':
@@ -676,11 +689,11 @@ if __name__ == '__main__':
     D.get_lead_req(iterations =1)
     D.save_verbose_data()
     D.export_distancemap()
-    R = Report(D)
+    R = Report(D,output_folder = '2018/')
 #    R.OGP_workload_plot()
-    R.room_lead_table()
+#    R.room_lead_table()
 #    R.source_workload_plots()
-    R.show_room()
+#    R.show_room()
 
 #%%
 '''
