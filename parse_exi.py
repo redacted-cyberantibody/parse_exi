@@ -471,12 +471,12 @@ class Dose:
             dose_to_room[receiver_row.Zone] = room_dose
         return pd.DataFrame(dose_to_room)
     
-    #Returns dose in uGy, provided DAP is given in Gcm^2
+    #Returns dose in uGy per week, provided DAP is given in Gcm^2
     def calculate_dose(self,ignore_attenuation = True):
         df = self.df
         df = df.groupby(['det_code','kV'])
         output = df.apply(self.calculate_dose_for_df_row, ignore_attenuation)
-        output = output*get_dose_rescale_factor(self.df)
+        output = output * get_dose_rescale_factor(self.df)
         output.index = output.index.rename('contribution',level = 2)
         return output
     
@@ -501,11 +501,11 @@ class Dose:
         self.export_distancemap().to_csv('%s/%s_distances.csv' % (output_folder,output_name))
         return workload,doses,dose_short,factors
         
-    
     def get_lead_req(self,
                      iterations = 3):
         #Start from 0 attenuation
         self.dfr.added_attenuation = 0
+        self.dfr['Limit'] = self.dfr.Constraint / self.dfr.Occupancy
     
         dose_out = []
         lead_out = []
@@ -518,15 +518,15 @@ class Dose:
             doses = self.calculate_dose(ignore_att)
             if i == 0:
                 self.dfr['raw_dose'] = doses.sum()
-                self.dfr['required_transmission'] = self.dfr.Constraint/self.dfr.raw_dose
+                self.dfr['required_transmission'] = self.dfr.Limit / self.dfr.raw_dose
         
             #Converts dose for entire Exi log to dose per week in uGy
             #todo: double check this conversion.
             doses = (doses.sum()).T
             doses = doses
             dose_out.append(doses)
-            #Compare to constraints    
-            attenuation_required = self.dfr['Constraint'] / doses
+            #Compare to constraints
+            attenuation_required = self.dfr.Limit / doses
             #Compute an equivalent lead requirement
             lead = self.get_necessary_shielding(attenuation_required,'Lead',90)
             lead_out.append(lead)
@@ -616,7 +616,7 @@ class Report:
         '''
         headers = {
         'raw_dose':{'head':'Unattenuated dose (uGy/wk)','format':'{:,.1f}'.format},
-        'Constraint':{'head':'Dose constraint (uGy/wk)','format':'{:,.0f}'.format},
+        'Limit':{'head':'Dose constraint (uGy/wk)','format':'{:,.0f}'.format},
         'required_transmission':{'head':'Barrier transmission','format':'{:,.2f}'.format},
         'added_attenuation':{'head':'Min. lead eq. (mm)','format':'{:,.2f}'.format},
         'wall_weight':{'head':'Barrier lead weight (kg/m^2)','format':'{:,.0f}'.format}}
@@ -677,9 +677,9 @@ if __name__ == '__main__':
     D.save_verbose_data()
     D.export_distancemap()
     R = Report(D)
-    R.OGP_workload_plot()
+#    R.OGP_workload_plot()
     R.room_lead_table()
-    R.source_workload_plots()
+#    R.source_workload_plots()
     R.show_room()
 
 #%%
