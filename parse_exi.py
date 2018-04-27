@@ -311,8 +311,9 @@ def is_room_in_beam(beam_line,room_ext):
     beam_line_extended = LineString([p1,p2])
     return beam_line_extended.intersects(room_ext)
 
-def make_point_column(row,xn,yn):
+def make_point_columns(row,xn,yn):
     return Point(row[xn],row[yn])
+#%%
 #Use one row of df,dfr,dfs,organmap,distancemap to calculate dose
 #Implements the BIR method for dose calculations
 class Dose:
@@ -333,6 +334,7 @@ class Dose:
         self.df_att_coeff = pd.read_csv(att_coeff_fn)
         
         self.dmap = self.make_distancemap(self.dfr,self.dfs)
+        self.make_geo_shapes()
 
     def make_distancemap(self,dfr,dfs):
         distancemap = {}
@@ -371,6 +373,11 @@ class Dose:
         if output_folder:
             dmap.to_csv(output_folder + 'distancemap.csv')
         return dmap
+    def make_geo_shapes(self):
+        self.dfr['rect'] = self.dfr.apply(make_rect_column,axis=1)
+        self.dfs['tubeP'] = self.dfs.apply(make_point_columns,args = ['tubex','tubey'],axis=1)
+        self.dfs['targetP'] = self.dfs.apply(make_point_columns,args = ['targetx','targety'],axis=1)
+        
     #Transmission calculation functions
     def get_transmission(self, thickness, material, kV):
         a,b,y = self.get_shielding_coefficients(material,kV)
