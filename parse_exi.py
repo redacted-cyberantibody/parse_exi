@@ -12,6 +12,7 @@ import pandas as pd
 
 from matplotlib import pyplot as plt
 from shapely.geometry import Polygon,Point,box,LinearRing,LineString
+from descartes import PolygonPatch
 
 #from xlrd import open_workbook
 #from xlsxwriter.utility import xl_rowcol_to_cell as rc_c
@@ -542,6 +543,41 @@ class Dose:
 #a,b,c,d = D.get_lead_req(iterations=3)
 
 #%%
+'''
+Reporting and graphing functions
+'''
+#Plotting functions
+def add_point_to_ax(ax,point,text,textoffset = -.3):
+    try:
+        point = Point(point)
+    except:
+        pass
+    patch = PolygonPatch(point.buffer(.15))
+    ax.add_patch(patch)
+    text_position = point.x+textoffset,point.y+textoffset
+    ax.text(*text_position,text,
+            verticalalignment='center',
+            horizontalalignment='center')
+
+def add_rect_to_ax(ax,rect,text):
+    patch = PolygonPatch(rect)
+    ax.add_patch(patch)
+    a = np.array(rect.bounds).reshape(2,2)
+    text_position = (a[0,:]+a[1,:])/2
+    ax.text(*text_position,text,
+            verticalalignment='center',
+            horizontalalignment='center')
+    
+def add_arrow_to_ax(ax,P1,P2,text):
+    p1 = np.array(P1.coords[0])
+    p2 = np.array(P2.coords[0])
+    
+    length = p2-p1
+    if ~(p1-p2).any():
+        add_point_to_ax(ax,p1,text)    
+    else:        
+        ax.arrow(*p1,*length,width = .1,length_includes_head=True)
+        ax.text(*(p1+.25),text)
 #Reporting and graphing
 class Report:
     def __init__(self,D,output_folder = 'output/test/'):
@@ -616,7 +652,23 @@ class Report:
         
 
     def show_room(self):
-        pass
+        xrange = (min(D.dfr.x1.min(),D.dfr.x2.min()),
+                  max(D.dfr.x1.max(),D.dfr.x2.max()))
+        yrange = (min(D.dfr.y1.min(),D.dfr.y2.min()),
+                  max(D.dfr.y1.max(),D.dfr.y2.max()))
+
+        fig,ax = plt.subplots(figsize = (9,9))
+        
+        for i, row in D.dfr.iterrows():
+            add_rect_to_ax(ax,row.rect,row.Zone)
+            
+        for i,row in D.dfs.iterrows():
+            add_arrow_to_ax(ax,row.tubeP,row.targetP,row.det_mode)
+        ax.set_title('General Polygon')
+        ax.set_xlim(*xrange)
+        ax.set_ylim(*yrange)
+        ax.set_aspect(1)
+        fig.show()
 
 #%%
 if __name__ == '__main__':
@@ -628,6 +680,7 @@ if __name__ == '__main__':
     R.OGP_workload_plot()
     R.room_lead_table()
     R.source_workload_plots()
+    R.show_room()
 
 #%%
 '''
