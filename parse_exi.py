@@ -12,6 +12,7 @@ import pandas as pd
 
 from matplotlib import pyplot as plt
 from matplotlib import cm
+from matplotlib.lines import Line2D
 from shapely.geometry import Point,box,LinearRing,LineString
 from descartes import PolygonPatch
 import os
@@ -564,6 +565,7 @@ def add_point_to_ax(ax,point,text,textoffset = -.3):
 def add_rect_to_ax(ax,rect,text,color):
     patch = PolygonPatch(rect,color = color)
     ax.add_patch(patch)
+    ax.plot(*rect.exterior.xy,color = 'black')
     a = np.array(rect.bounds).reshape(2,2)
     text_position = (a[0,:]+a[1,:])/2
     ax.text(*text_position,text,
@@ -580,6 +582,8 @@ def add_arrow_to_ax(ax,P1,P2,text):
     else:        
         ax.arrow(*p1,*length,width = .1,length_includes_head=True)
         ax.text(*(p1+.25),text)
+def color_from_wall_weight(wall_weight):
+    return cm.viridis.colors[int(wall_weight)*9+30]
 #Reporting and graphing
 class Report:
     def __init__(self,D,output_folder = False):
@@ -652,7 +656,10 @@ class Report:
         namemap = namemap.exam_type.to_dict()
         dfp = dfp.rename(columns = namemap)
         
-        fig,axes = plt.subplots(nrows = len(dfp.columns),sharex = True,figsize = (6,len(dfp.columns)*3))
+        fig,axes = plt.subplots(nrows = len(dfp.columns),
+                                sharex = True,
+                                figsize = (6,len(dfp.columns)*3)
+                                )
         dfp.plot(ax = axes,subplots = True,drawstyle="steps")
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
@@ -671,14 +678,24 @@ class Report:
         fig,ax = plt.subplots(figsize = (9,9))
                 
         for i, row in self.D.dfr.iterrows():
-            try:
-                color = cm.viridis.colors[int(row.wall_weight)*10]
-            except:
+            if self.D.dfr.added_attenuation.any():
+                text = row.Zone + '\n '+str(row.wall_weight) + ' kg/m^2'
+                color = color_from_wall_weight(row.wall_weight)
+            else:
+                text = row.Zone
                 color = cm.tab10.colors[0]
-            add_rect_to_ax(ax,row.rect,row.Zone,color)
+                
+            add_rect_to_ax(ax,row.rect,text,color)
             
         for i,row in self.D.dfs.iterrows():
             add_arrow_to_ax(ax,row.tubeP,row.targetP,row.det_mode)
+        
+        legend_weights = np.arange(0,25.1,5)
+        legend_colors = [color_from_wall_weight(w) for w in legend_weights]
+        legend_lines = [Line2D([0],[0],color=c,lw = 4) for c in legend_colors]
+        legend_labels = [str(w) + ' kg/m^2' for w in legend_weights]
+        ax.legend(legend_lines,legend_labels)
+        
         ax.set_title('General Polygon')
         ax.set_xlim(*xrange)
         ax.set_ylim(*yrange)
