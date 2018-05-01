@@ -44,15 +44,44 @@ def match_columns_to_device_list(columns, device_list):
     device_cols = {v: k for k, v in device_cols.items()}
     return device_cols
 
+def standardise_df_columns(df, device_list):
+    """Convert the column names of a dataframe to the
+    format used in Ysio exi logs, based on a mapping
+    input file
+    """
+    cols = match_columns_to_device_list(df.columns, device_list)
+    return df.rename(columns=cols)
+
+def strip_df(df):
+#    for column in df.columns:
+#        df[column] = df[column].str.strip(' ,(!)')
+    df = df.applymap(lambda x: x.strip(' ,(!)') if type(x) is str else x)
+    return df
+
+def enforce_column_types(df, device_list):
+    """Data cleaning function that converts the columns
+    to the format required in the device_list input file
+    """
+    
+    column_types = device_list.loc['column_type']
+    for col in df.columns:
+        if column_types[col] in ['float64', 'int64', 'int']:
+            try:
+                df.loc[df[col]=='',col] = 0
+            except:
+                pass
+        df[col] = df[col].astype(column_types[col], errors='ignore')
+        mask = df[col] != df[col]
+        df.loc[mask,col] = 0
+    return df
+
 def convert_numeric_columns(df,
                             numeric_cols=[
                                 'Deviation index', 'Clinical EXI',
                                 'Maximum EXI', 'Minimum EXI',
                                 'Physical EXI', 'kV', 'mAs',
                                 'SID', 'DAP', 'Dose']):
-    """Data cleaning function that converts specified columns
-    to a numeric data format
-    """
+
     df[numeric_cols] = df[numeric_cols].replace('[^\d.]+', '', regex=True)
     for col in numeric_cols:
         if df[col].dtype == 'O':
@@ -61,20 +90,12 @@ def convert_numeric_columns(df,
     df[numeric_cols] = df[numeric_cols].astype(float)
     return df
 
-def standardise_df_columns(df, device_list_fn='device_list.csv'):
-    """Convert the column names of a dataframe to the
-    format used in Ysio exi logs, based on a mapping
-    input file
-    """
-    device_list = pd.read_csv('device_list.csv')
-    cols = match_columns_to_device_list(df.columns, device_list)
-    return df.rename(columns=cols)
-
 def remove_spurious_data(df):
     """Remove any instances of phantom repeat exposures"""
     df = df.drop_duplicates(['Acq. date', 'Acq. time', 'DAP'])
     #Remove any instances where kV is 0
     df = df[df.kV > 30]
+    df = df[df.OGP.str[0] != 'Q']
     return df
 
 def format_date(df):
@@ -97,7 +118,7 @@ def extract_organ_view(df, ogp_split, mask, n_organ_words):
     df.loc[mask, 'organ'] = (
         ogp_split.loc[mask].str[:n_organ_words].str.join(' '))
     df.loc[mask, 'view'] = (
-        ogp_split.loc[mask].str[:n_organ_words].str.join(' '))
+        ogp_split.loc[mask].str[n_organ_words:].str.join(' '))
     return df
 
 def analyse_organ_protocol(df):
@@ -134,6 +155,10 @@ def analyse_organ_protocol(df):
 
     #Analyse remaining words based on total number of words
     ogp_remaining_words = OGP_split.str.len()
+    #Check if remaining words is 0. if it is, complain to radiographers
+    #and also duplicate the age column. Naughty radiographer!
+    mask = ogp_remaining_words == 0
+    OGP_split[mask] = df.age[mask]
 
     #Find n_organ_words:n_view_words
     #If one remaining word, assume 1:0
@@ -201,16 +226,17 @@ def bin_organ_protocols(df, input_ogp_binning_fn='input_ogp.csv'):
 
 #Hacky function to convert DAP to Gycm2. Consider finesse.
 def convert_DAP_to_Gycm2(df):
-    DAPmean = df.DAP.mean()
-    if DAPmean > 20:
-        df.DAP = df.DAP/10
+#    DAPmean = df.DAP.mean()
+    df.DAP = df.DAP/10
     return df
 
-def import_data(fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
-    df = (pd.read_csv(fn)
-          .pipe(standardise_df_columns, device_list_fn)
+def import_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
+    device_list = pd.read_csv(device_list_fn, index_col='index')
+    df = (pd.read_csv(exi_fn)
+          .pipe(strip_df)
+          .pipe(standardise_df_columns, device_list)
+          .pipe(enforce_column_types,device_list)
           .pipe(calculate_beam_area)
-          .pipe(convert_numeric_columns)
           .pipe(remove_spurious_data)
           .pipe(format_date)
           .pipe(analyse_organ_protocol)
@@ -218,6 +244,7 @@ def import_data(fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
           .pipe(convert_DAP_to_Gycm2)
          )
     return df
+
 #%%
 #Functions that compute potentially useful statistics and values
 def get_usage_during_periods(timestamps, dap):
@@ -339,7 +366,7 @@ def make_xraybarr_spectrum_set(exi_fn,
                                room_name='default',
                                output_folder='output/'
                               ):
-    df = import_data(exi_fn)
+    df = import_data(exi_fn=exi_fn)
     ratio = get_dose_rescale_factor(df)
     #mAs needs to be in mAmin/week, not year
     df.mAs = df.mAs * ratio
@@ -438,12 +465,12 @@ def make_point_columns(row, xn, yn):
 #Implements the BIR method for dose calculations
 class Dose:
     def __init__(self,
-                 df_fn='sample_exi_log.csv',
+                 exi_fn='sample_exi_log.csv',
                  dfr_fn='input_rooms.csv',
                  dfs_fn='input_sources.csv',
                  att_coeff_fn='input_shielding_coefficients.csv'):
 
-        self.df = import_data(df_fn)
+        self.df = import_data(exi_fn=exi_fn)
         self.dfr = pd.read_csv(dfr_fn)
         self.dfr['added_attenuation'] = 0
         self.dfr.index = self.dfr.Zone
@@ -550,7 +577,6 @@ class Dose:
 #        mAs = dfg_row.mAs.sum()
         beam_area = dfg_row.beam_area.mean()
         SID = dfg_row.SID.mean()/100
-
         for __, receiver_row in dfr.iterrows():
             #Get data for set room
             room_data = (
@@ -591,9 +617,9 @@ class Dose:
         return output
 
     def save_verbose_data(self,
-                          ignore_attenuation=True,
-                          output_folder='output',
-                          output_name='test'):
+                         output_folder='output',
+                         output_name='test',
+                         ignore_attenuation=True):
         doses = self.calculate_dose()
 
         dfg = self.df.groupby(['det_code', 'kV'])
@@ -778,12 +804,18 @@ class Report:
         namemap.index = namemap.det_mode
         namemap = namemap.exam_type.to_dict()
         dfp = dfp.rename(columns=namemap)
-
-        fig, axes = plt.subplots(nrows=len(dfp.columns),
+        dfp['total'] = df.sum(axis=1)
+        fig, axes = plt.subplots(nrows=3,
+                                 ncols=2,
                                  sharex=True,
-                                 figsize=(6, len(dfp.columns)*3),
+                                 sharey=True,
+                                 figsize=(7, 9),
                                 )
+        axes = axes.reshape(6,)
+        
+        
         dfp.plot(ax=axes, subplots=True, drawstyle="steps")
+        
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()
         fig.text(0.001, 0.5, r'Cumulative DAP (Gycm$^2$)',
@@ -808,11 +840,13 @@ class Report:
         fig, ax = plt.subplots(figsize=(9, 9))
 
         for i, row in self.D.dfr.iterrows():
+            text = row.Zone
+            text= text + '\nConstraint: ' + str(row.Constraint) + ' uSv/week'
+            text = text + '\nO: ' + str(row.Occupancy)
             if self.D.dfr.added_attenuation.any():
-                text = row.Zone + '\n '+str(row.wall_weight) + ' kg/m^2'
+                text = text + '\n '+str(row.wall_weight) + ' kg/m^2'
                 color = color_from_wall_weight(row.wall_weight)
             else:
-                text = row.Zone
                 color = color_from_wall_weight(0)
 
             add_rect_to_ax(ax, row.rect, text, color)
@@ -825,7 +859,8 @@ class Report:
             legend_colors = [color_from_wall_weight(w) for w in legend_weights]
             legend_lines = [Line2D([0], [0], color=c, lw=4) for c in legend_colors]
             legend_labels = [str(w) + ' kg/m^2' for w in legend_weights]
-            ax.legend(legend_lines, legend_labels)
+            ax.legend(legend_lines, legend_labels, loc=6,
+                      bbox_to_anchor=(1, 0.5))
 
         ax.set_title('Floor plan')
         ax.set_xlim(*xrange)
@@ -837,14 +872,31 @@ class Report:
             fig.show()
 
 #%%
+def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name):
+    for fn in [folder, folder+room_name,
+               folder+room_name+'/XRAYBARRspectrums',
+               folder+room_name+'/verbose']:
+        try:
+            os.mkdir(fn)
+        except:
+            pass
+    output_folder = folder+room_name+'/'
+    
+    D = Dose(exi_fn, dfs_fn=dfs_fn, dfr_fn=dfr_fn)
+    D.get_lead_req(iterations=3)
+    D.save_verbose_data(output_folder+'verbose', room_name)
+    D.export_distancemap(output_folder+'verbose')
+    R = Report(D, output_folder)
+
+    make_xraybarr_spectrum_set(exi_fn, room_name, output_folder + 'XRAYBARRspectrums/')
+    
 if __name__ == '__main__':
-    df_fn = 'Y:\\BTS-Herston-MedPhys\\MedPhys\\BTS GCUH\\EXI logs\\2018\\GCUH ED Rm1\\2018\\FLC_EXI_LOG_20180315_063246.csv'
-    D = Dose(df_fn=df_fn)
-    D.get_lead_req(iterations=1)
+#    full_report('sample_exi_log.csv','input_sources.csv','input_rooms.csv','output/','testroom1')
+    D = Dose()
+#    D.get_lead_req(iterations=1)
 #    D.save_verbose_data()
-#    D.export_distancemap()
-    R = Report(D)
+#    R = Report(D)
 #    R.OGP_workload_plot()
 #    R.room_lead_table()
 #    R.source_workload_plots()
-    R.show_room()
+#    R.show_room()
