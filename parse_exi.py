@@ -474,9 +474,7 @@ class Dose:
                  att_coeff_fn='input_shielding_coefficients.csv'):
 
         self.df = import_data(exi_fn=exi_fn)
-        self.dfr = pd.read_csv(dfr_fn)
-        self.dfr['added_attenuation'] = 0
-        self.dfr.index = self.dfr.Zone
+        self.import_dfr(dfr_fn)
 
         self.dfs = pd.read_csv(dfs_fn)
         self.dfs = self.dfs.where(self.dfs == self.dfs, '')
@@ -486,7 +484,16 @@ class Dose:
         self.dmap = make_distancemap(self.dfr, self.dfs)
         self.make_geo_shapes()
 
-
+    def import_dfr(self, dfr_fn):
+        self.dfr = pd.read_csv(dfr_fn)
+        self.dfr['added_attenuation'] = 0
+        self.dfr.index = self.dfr.Zone
+        #If coordinates are in imagej format:
+        if 'BX' in self.dfr.columns:
+            self.dfr['x1'] = self.dfr.BX
+            self.dfr['y1'] = self.dfr.BY - self.dfr.Height
+            self.dfr['x2'] = self.dfr.BX + self.dfr.Width
+            self.dfr['y2'] = self.dfr.BY
 
     def export_distancemap(self, output_folder=False):
         dmap = {(outerKey, innerKey): values
@@ -734,8 +741,6 @@ class Report:
             os.mkdir(self.output_folder)
         except:
             pass
-#        if ~self.D.dfr.added_attenuation.any():
-#            self.D.get_lead_req(iterations = 3)
         if output_folder:
             self.OGP_workload_plot()
             self.room_lead_table()
