@@ -871,17 +871,23 @@ class Report:
             legend_labels = [str(w) + ' kg/m^2' for w in legend_weights]
             ax.legend(legend_lines, legend_labels, loc=6,
                       bbox_to_anchor=(1, 0.5))
-
-        if im_fn:
-            self.image_room_overlay(ax,im_fn)
             
         ax.set_title('Floor plan')
         ax.set_xlim(*xrange)
         ax.set_ylim(*yrange)
         ax.set_aspect(1)
         
+        if im_fn:
+            self.image_room_overlay(ax,im_fn)
+            
+
+        
         if self.output_folder:
-            fig.savefig(self.output_folder + 'room_layout.pdf')
+            if not im_fn:
+                save_fn = 'room_layout.pdf'
+            else:
+                save_fn = 'room_overlay.pdf'
+            fig.savefig(self.output_folder + save_fn, bbox_inches='tight')
         else:
             fig.show()
 
@@ -892,11 +898,13 @@ class Report:
         except:
             return
         scale = (np.array(im.size)/res).astype('float')
-        
+        ax.set_xlim(0, scale[0])
+        ax.set_ylim(0, scale[1])
+        ax.set_aspect(1)
         ax.imshow(im, extent=[0,scale[0],0,scale[1]])
 
 #%%
-def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name):
+def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
     for fn in [folder, folder+room_name,
                folder+room_name+'/XRAYBARRspectrums',
                folder+room_name+'/verbose']:
@@ -911,7 +919,10 @@ def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name):
     D.save_verbose_data(output_folder+'verbose', room_name)
     D.export_distancemap(output_folder+'verbose')
     R = Report(D, output_folder)
-
+    try:
+        R.show_room(imname)        
+    except Exception as e:
+        print(e)
     make_xraybarr_spectrum_set(exi_fn, room_name, output_folder + 'XRAYBARRspectrums/')
     
 if __name__ == '__main__':
