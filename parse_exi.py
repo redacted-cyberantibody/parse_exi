@@ -16,6 +16,7 @@ from matplotlib import cm
 from matplotlib.lines import Line2D
 from shapely.geometry import Point, box, LinearRing, LineString
 from descartes import PolygonPatch
+from PIL import Image
 
 
 #from xlrd import open_workbook
@@ -208,10 +209,12 @@ def bin_organ_protocols(df, input_ogp_binning_fn='input_ogp.csv'):
         multmask = multiplier != multiplier
         multiplier[multmask] = multiplier2[multmask]
 
-        if i == 'T':
+        #Now look at where the OGP map failed
+        #Assume worst case distribution of T=1,C=1,2C=1,3C=0.1
+        if i in ['T', 'C', '2C']:
             multiplier[multiplier != multiplier] = 1
         else:
-            multiplier[multiplier != multiplier] = 0
+            multiplier[multiplier != multiplier] = 0.1
         temp[cols] = temp[cols].multiply(multiplier, axis='index')
         df = df.append(temp)
 
@@ -783,11 +786,13 @@ class Report:
         coltitle_fmt = {key_coltitle[k]:key_fmt[k] for k in headers.keys()}
 
         table = self.D.dfr.loc[:, headers.keys()].copy()
-        table.round(key_fmt)
+        table = table.round(key_fmt)
 
         self.table = table.rename(columns=key_coltitle)
         if self.output_folder:
             self.table.to_excel(self.output_folder + 'results_table.xlsx')
+            with open(self.output_folder + 'results_table_latex.txt','w') as f:
+                 f.write(self.table.to_latex())
 
 
     def source_workload_plots(self):
@@ -804,7 +809,7 @@ class Report:
         namemap.index = namemap.det_mode
         namemap = namemap.exam_type.to_dict()
         dfp = dfp.rename(columns=namemap)
-        dfp['total'] = df.sum(axis=1)
+        dfp['total'] = dfp.sum(axis=1)
         fig, axes = plt.subplots(nrows=3,
                                  ncols=2,
                                  sharex=True,
@@ -827,7 +832,7 @@ class Report:
         else:
             fig.show()
 
-    def show_room(self):
+    def show_room(self, im_fn=None):
         """Create a figure based on the imported source and room
         geometric data. Save it or show it depending how the function
         is called.
@@ -862,14 +867,28 @@ class Report:
             ax.legend(legend_lines, legend_labels, loc=6,
                       bbox_to_anchor=(1, 0.5))
 
+        if im_fn:
+            self.image_room_overlay(ax,im_fn)
+            
         ax.set_title('Floor plan')
         ax.set_xlim(*xrange)
         ax.set_ylim(*yrange)
         ax.set_aspect(1)
+        
         if self.output_folder:
             fig.savefig(self.output_folder + 'room_layout.pdf')
         else:
             fig.show()
+
+    def image_room_overlay(self, ax, im_fn):
+        im = Image.open(im_fn)
+        try:
+            res = np.array(im.info['resolution'])
+        except:
+            return
+        scale = (np.array(im.size)/res).astype('float')
+        
+        ax.imshow(im, extent=[0,scale[0],0,scale[1]])
 
 #%%
 def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name):
