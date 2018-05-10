@@ -1,0 +1,11 @@
+$institution
+$xrayroom
+ 1 
+$receiver
+$occupancy
+ 2 
+ 0 
+$constraint
+Primary Distance (m)
+Secondary Distance (m)
+Leakage Distance (m)

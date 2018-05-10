@@ -1,0 +1,17 @@
+$name
+$fn
+$longfn
+ 10 
+$patients
+pats/wk
+$mAmin
+$leak_kVp
+$leak_mA
+$in_p_beam
+ 1 
+$primary_distance
+$secondary_distance
+$secondary_distance
+$SID
+$area
+$angle
