@@ -837,7 +837,7 @@ class Report:
         fig.tight_layout()
         if self.output_folder:
             fig.savefig(self.output_folder + 'ogp_stats.pdf')
-            plt.close(fig)
+#            plt.close(fig)
         else:
             fig.show()
 
@@ -903,7 +903,7 @@ class Report:
                 )
         if self.output_folder:
             fig.savefig(self.output_folder + 'workload_plots.pdf')
-            plt.close(fig)
+#            plt.close(fig)
         else:
             fig.show()
 
@@ -958,7 +958,7 @@ class Report:
             else:
                 save_fn = 'room_overlay.pdf'
             fig.savefig(self.output_folder + save_fn, bbox_inches='tight')
-            plt.close(fig)
+#            plt.close(fig)
         else:
             fig.show()
 
