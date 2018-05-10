@@ -235,9 +235,10 @@ def bin_organ_protocols(df, input_ogp_binning_fn='input_ogp.csv'):
     return df
 
 #Hacky function to convert DAP to Gycm2. Consider finesse.
+#Begins in uGym^2, factor of 100 conversion to Gycm^2
 def convert_DAP_to_Gycm2(df):
 #    DAPmean = df.DAP.mean()
-    df.DAP = df.DAP/10
+    df.DAP = df.DAP/100
     return df
 
 def import_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
@@ -375,10 +376,10 @@ def save_xraybarr_spectrum(df,
     with open(output_folder+spectrum_name+'.spe', 'w') as file:
         file.writelines('\n'.join(output_list))
 
-def make_xraybarr_spectrum_set(exi_fn,
-                               room_name='default',
+def make_xraybarr_spectrum_set(room_name='default',
                                output_folder='output/',
-                               D=None
+                               D=None,
+                               exi_fn=None,
                               ):
     if D:
         df = D.df
@@ -799,9 +800,12 @@ def color_from_wall_weight(wall_weight):
 
 #Reporting and graphing
 class Report:
-    def __init__(self, D, output_folder=False):
+    def __init__(self, D, output_folder=False, room_name='default xray room'):
         self.D = D
         self.output_folder = output_folder
+        if self.output_folder:
+            self.output_folder = output_folder + '/' + room_name +'/'
+        self.room_name = room_name
         try:
             os.mkdir(self.output_folder)
         except:
@@ -969,6 +973,21 @@ class Report:
         ax.set_ylim(0, scale[1])
         ax.set_aspect(1)
         ax.imshow(im, extent=[0,scale[0],0,scale[1]])
+    
+    def full_report(self):
+        for fn in [self.output_folder,
+                   self.output_folder+'/XRAYBARRspectrums',
+                   self.output_folder+'/verbose']:
+            try:
+                os.mkdir(fn)
+            except:
+                pass
+        out_folder =  self.output_folder
+        self.D.save_verbose_data(out_folder+'verbose', self.room_name)
+        self.D.export_distancemap(out_folder+'verbose/')
+        make_xraybarr_spectrum_set(D=self.D,
+                                   room_name=self.room_name,
+                                   output_folder=out_folder + 'XRAYBARRspectrums/')
 
 #%%
 def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
@@ -994,7 +1013,7 @@ def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
     
 if __name__ == '__main__':
 #    full_report('sample_exi_log.csv','input_sources.csv','input_rooms.csv','output/','testroom1')
-    D = Dose()
+#    D = Dose()
 #    D.get_lead_req(iterations=1)
 #    D.save_verbose_data()
 #    R = Report(D)
@@ -1002,3 +1021,4 @@ if __name__ == '__main__':
 #    R.room_lead_table()
 #    R.source_workload_plots()
 #    R.show_room()
+    'nn'

@@ -11,7 +11,6 @@ import pandas as pd
 import matplotlib.backends.tkagg as tkagg
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-
 import parse_exi as pe
 
 class InputFrame(Frame):
@@ -24,7 +23,6 @@ class InputFrame(Frame):
         self.exi_btn = Button(self,text = "Choose")
         self.exi_btn.grid(row = 0, column = 2)
         
-        self.source_fn = StringVar()
         Label(self,text = "Source input").grid()
         self.source_entry = Entry(self)
         self.source_entry.grid(row = 1, column = 1)
@@ -58,14 +56,26 @@ class InputFrame(Frame):
         self.reportbtn = Button(self,text = "Save plots")
         self.reportbtn.grid(columnspan = 3)  
         
-        
         self.xraybarrbtn = Button(self,text = "Create XRAYBARR spectrums from Exi")
         self.xraybarrbtn.grid(columnspan = 3)
         
-        self.verbosebtn = Button(self,text = "Save verbose dose calculations")
+        self.verbosebtn = Button(self,text = "Produce full report")
         self.verbosebtn.grid(columnspan = 3)
         
+class TextFrame(Frame):
+    def __init__ (self, master):
+        Frame.__init__ (self, master)
+        Label(self,text = "Room name").grid()
+        self.room_name = Entry(self)
+        self.room_name.grid(row = 0, column = 1)
+    
+        Label(self,text = "Conservatism factor").grid()
+        self.conservatism = Entry(self)
+        self.conservatism.grid(row = 1, column = 1)
         
+        Label(self,text = "EXI rescale factor (override)").grid()
+        self.exi_rescale = Entry(self)
+        self.exi_rescale.grid(row = 2, column = 1)
          
 class DataFrame(Frame):
     def __init__ (self, master):
@@ -75,28 +85,27 @@ class DataFrame(Frame):
         self.datalabel = Label(self)
         self.datalabel.pack()
         
-        
 class View(Frame):
     def __init__(self,master = None):
         Frame.__init__ (self, master)
         self.pack()
+        self.text_frame = TextFrame(master)
+        self.text_frame.pack(side=LEFT)
         self.input_frame = InputFrame(master)
-        self.input_frame.pack(side = LEFT)
+        self.input_frame.pack(side=LEFT)
         self.data_frame = DataFrame(master)
-        self.data_frame.pack(side = LEFT)
+        self.data_frame.pack(side=LEFT)
 
-        
-
-        
-        
 class Controller:
     def __init__(self):
         
         self.root = Tk()
         self.view = View(self.root)
         
-        
         self.exi_fn = StringVar()
+        self.conservatism = StringVar()
+        self.exi_rescale = StringVar()
+        self.room_name = StringVar()
         self.source_fn = StringVar()
         self.room_fn = StringVar()
         
@@ -107,6 +116,9 @@ class Controller:
         self.view.input_frame.exi_entry.configure(textvariable = self.exi_fn)
         self.view.input_frame.source_entry.configure(textvariable = self.source_fn)
         self.view.input_frame.room_entry.configure(textvariable = self.room_fn)
+        self.view.text_frame.room_name.configure(textvariable = self.room_name)
+        self.view.text_frame.conservatism.configure(textvariable = self.conservatism)
+        self.view.text_frame.exi_rescale.configure(textvariable = self.exi_rescale)
         
         self.view.input_frame.exi_btn.bind("<Button-1>",lambda x: self.choose_file(self.exi_fn))
         self.view.input_frame.room_btn.bind("<Button-1>",lambda x: self.choose_file(self.room_fn))
@@ -116,20 +128,22 @@ class Controller:
         self.view.input_frame.dosebtn.bind("<Button-1>",self.get_dose_to_rooms)
         self.view.input_frame.leadbtn.bind("<Button-1>",self.get_lead_required)
         self.view.input_frame.xraybarrbtn.bind("<Button-1>",self.export_for_xraybarr)
-        self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_logs)
+        self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_report)
         self.view.input_frame.reportbtn.bind("<Button-1>",self.produce_report)
         self.view.input_frame.roombtn.bind("<Button-1>",self.show_room)
         self.view.input_frame.workloadbtn.bind("<Button-1>",self.show_workload)
         self.view.input_frame.ogpbtn.bind("<Button-1>",self.show_OGP_stats)
         
-        
-        
-           
+        self.output_text = StringVar()
+        self.view.data_frame.textlabel.configure(textvariable = self.output_text)
+        self.output_data = StringVar()
+        self.view.data_frame.datalabel.configure(textvariable = self.output_data)
         
         self.output_text = StringVar()
         self.view.data_frame.textlabel.configure(textvariable = self.output_text)
         self.output_data = StringVar()
         self.view.data_frame.datalabel.configure(textvariable = self.output_data)
+        
         
     def choose_file(self, stringvar):
         fn = filedialog.askopenfilename(title = "Select file",filetypes = (("csv files","*.csv"),("all files","*.*")))
@@ -146,12 +160,12 @@ class Controller:
         
     def load_input_files(self,event):
         try:
-            self.D = pe.Dose(df_fn = self.exi_fn.get(),
+            self.D = pe.Dose(exi_fn = self.exi_fn.get(),
                              dfr_fn = self.room_fn.get(),
                              dfs_fn = self.source_fn.get())
             self.update_output('Loaded input files')
-        except:
-            self.update_output('Failed to load input files')
+        except Exception as e:
+            self.update_output('Failed to load input files',e)
         
     def get_dose_to_rooms(self,event):
         try:
@@ -174,15 +188,11 @@ class Controller:
         
     def export_for_xraybarr(self,event):
         output_folder = self.choose_folder()+'/'
-        room_name = simpledialog.askstring("Room name", "Enter an identifier for the X-ray room")
         if not output_folder:
             self.update_output('No output folder selected, try again')
             return
-        if not room_name:
-            self.update_output('No room name input given, try again')
-            return
         try:
-            pe.make_xraybarr_spectrum_set(self.exi_fn.get(),room_name = room_name, output_folder = output_folder)
+            pe.make_xraybarr_spectrum_set(self.exi_fn.get(), room_name=self.room_name.get(), output_folder=output_folder)
             self.update_output('Exported for XRAYBARR','folder: '+output_folder)
         except Exception as e:
             self.update_output('Could not export to XRAYBARR:',str(e))
@@ -191,25 +201,18 @@ class Controller:
         except:
             pass
     
-    def verbose_logs(self,event):
+    def verbose_report(self,event):
         output_folder = self.choose_folder()+'/'
-        output_name = simpledialog.askstring("Room name", "Enter an identifier for the X-ray room")
         if not output_folder:
             self.update_output('No output folder selected, try again')
-            return
-        if not output_name:
-            self.update_output('No room name input given, try again')
             return
         try:
             self.D
         except Exception as e:
-            self.update_output('input files not loaded')
+            self.update_output('input files not loaded', str(e))
             return
-        try:
-            self.D.save_verbose_data(output_folder = output_folder, output_name = output_name)
-            self.update_output('Saved verbose data logs','folder: %s' % (output_folder))
-        except:
-            self.update_output('Could not generate verbose dose logs')
+        R = pe.Report(self.D, output_folder, self.room_name.get())
+        R.full_report()
     
     def produce_report(self,event):
         output_folder = self.choose_folder()+'/'
@@ -217,10 +220,10 @@ class Controller:
             self.update_output('No output folder selected, try again')
             return
         #try:
-        pe.Report(self.D,output_folder = output_folder)
+        #R = pe.Report(self.D, output_folder=output_folder, room_name=self.room_name.get())
+        #R.full_report()
         #except:
         #    self.update_output('Could not produce reports')
-    
     
     def show_room(self,event):
         pe.Report(self.D).show_room()
