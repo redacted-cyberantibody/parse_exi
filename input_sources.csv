@@ -1,6 +1,6 @@
 det_mode,exam_type,tubex,tubey,targetx,targety,floor_target
-T,Table,6,3,6,3,1
-W,Wall bucky,3.5,3.3,3.5,1.5,0
-C,Cross,6,1,6,3,0
-2C,2nd cross,8,3,6,3,0
-3C,3rd cross,8,3,6,3,0
+T,Table,7,7,7,7,1
+W,Wall bucky,6,5,6,3.8,0
+C,Cross,5.5,7,7,7,0
+2C,2nd cross,9,7,7,7,0
+3C,3rd cross,7,5.5,7,7,0
