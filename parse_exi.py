@@ -7,6 +7,7 @@ Created on Wed Mar 21 09:43:58 2018
 import pdb
 
 import os
+from string import Template
 
 import numpy as np
 import pandas as pd
@@ -96,7 +97,11 @@ def remove_spurious_data(df):
     df = df.drop_duplicates(['Acq. date', 'Acq. time', 'DAP'])
     #Remove any instances where kV is 0
     df = df[df.kV > 30]
+    #Remove standard QA instances
     df = df[df.OGP.str[0] != 'Q']
+    df = df[df.OGP.str[0] != '*Q']
+    #If the OGP contains zero or only only one word, panic and drop the entry
+    df = df.loc[df.OGP.str.split(' ').str.len() > 1, :]
     return df
 
 def format_date(df):
@@ -136,7 +141,7 @@ def analyse_organ_protocol(df):
 
     #Split up the OGP into words
     OGP_split = OGP.str.split(' ')
-
+    
     #First element is det mode, pop it from the list
     df['det_mode'] = OGP.str[0]
     OGP_split = OGP_split.str[1:]
@@ -217,6 +222,8 @@ def bin_organ_protocols(df, input_ogp_binning_fn='input_ogp.csv'):
             multiplier[multiplier != multiplier] = 0.1
         temp[cols] = temp[cols].multiply(multiplier, axis='index')
         df = df.append(temp)
+    
+    df.loc[df.SID!=df.SID,'SID'] = 130
 
     df = df.loc[df.mAs != 0].copy()
     df = df.loc[df.det_code != 'X'].copy()
@@ -335,25 +342,28 @@ def create_xraybarr_spectrum(df, mask=None):
 
     #bin into 5 kVp increments, starting at 25 kVp
     view['kV_bin'] = view.kV // 5 * 5
-    mAs_by_kV = view.groupby(['kV_bin']).mAs.sum()
+    mAmin_by_kV = view.groupby(['kV_bin']).mAs.sum() / 60
 
     for kv in np.arange(25, 151, 5):
         try:
-            mAs = mAs_by_kV.loc[kv]
+            mAmin = mAmin_by_kV.loc[kv]
         except:
-            mAs = 0
-        output_list.append('%s (mAmin @ %s kVp)' % (mAs, kv))
+            mAmin = 0
+        output_list.append('%s (mAmin @ %s kVp)' % (mAmin, kv))
     #Properly calculate area here...
     weighted_mean_area = (view.mAs*view.beam_area).sum()/view.mAs.sum()
+    SID = view.SID.mean()/100
+
     output_list.append('%d  area of primary beam (cm2) at'
                        % (weighted_mean_area))
-    output_list.append('1.0  this primary distance (m)')
+    output_list.append('%.3f this primary distance (m)'
+                       % (SID))
     output_list.append('150  leakage technique kVp')
     output_list.append('3.3  leakage technique mA')
     output_list.append('100  leakage exposure rate (mR/hr) at 1 m when'
                        + ' operated at leak technique')
 
-    return output_list, mAs_by_kV
+    return output_list, mAmin_by_kV
 
 
 def save_xraybarr_spectrum(df,
@@ -367,14 +377,17 @@ def save_xraybarr_spectrum(df,
 
 def make_xraybarr_spectrum_set(exi_fn,
                                room_name='default',
-                               output_folder='output/'
+                               output_folder='output/',
+                               D=None
                               ):
-    df = import_data(exi_fn=exi_fn)
+    if D:
+        df = D.df
+    else:
+        df = import_data(exi_fn=exi_fn)
+        
     ratio = get_dose_rescale_factor(df)
     #mAs needs to be in mAmin/week, not year
     df.mAs = df.mAs * ratio
-
-
 
     categories = df.det_code.unique()
     masks = [df.det_code == category for category in categories]
@@ -394,6 +407,51 @@ def make_xraybarr_spectrum_set(exi_fn,
                                output_folder=output_folder,
                                spectrum_name='_'.join([room_name, cat])
                               )
+    if D:
+        make_xraybarr_barrier_setup(D, output_folder, room_name, mask_dict)
+
+def make_xraybarr_barrier_setup(D, output_folder, room_name, mask_dict):
+    #Preload the templates from text files
+    with open('input/bar_header.txt', 'r') as f:
+        header_template = Template(f.read())
+    with open('input/bar_tube.txt', 'r') as f:
+        tube_template = Template(f.read())
+    
+    tubes = ['T', 'T', 'W', 'C', '2C']
+    names = ['Tlarge', 'Tsmall','W','C','2C']
+    rooms = D.dmap['T'].keys()
+#    mapping_data = {}
+#    dict_of_df = {k: pd.DataFrame(v) for k,v in D.dmap.items()}
+#    df = pd.concat(dict_of_df, axis=1).T
+    for room in rooms:
+        #MAKE THE HEADER
+        head_map = {'institution':'AUTO HOSPITAL',
+                    'xrayroom':'AUTO XRAY ROOM',
+                    'receiver':room,
+                    'occupancy':D.dfr.loc[room,'Occupancy'],
+                    'constraint':D.dfr.loc[room,'Constraint']*50/1000}
+        output_string = header_template.substitute(head_map)
+        
+        #Make all the tubes
+        for i in range(len(tubes)):
+            tube_map = D.dmap[tubes[i]][room]
+            tube_map['in_p_beam'] = int(tube_map['in_p_beam'])
+            tube_map['name'] = names[i]
+            tube_map['fn'] = '_'.join([room_name, names[i]])+'.spe'
+            tube_map['longfn'] = output_folder + tube_map['fn']
+            tube_map['SID'] = D.df.loc[mask_dict[names[i]],'SID'].mean()/100
+            view = D.df.loc[mask_dict[names[i]],:]
+            tube_map['area'] = (view.mAs*view.beam_area).sum()/view.mAs.sum()
+            tube_map['patients'] = 1
+            tube_map['mAmin'] = 1
+            tube_map['leak_kVp'] = 150
+            tube_map['leak_mA'] = 3.3
+            
+            output_string = output_string + tube_template.safe_substitute(tube_map)
+            
+        with open(output_folder + room + '.bar', 'w') as f:
+            f.write(output_string)
+
 #%%
 #Geometric functions
 def make_distancemap(dfr, dfs):
@@ -503,6 +561,7 @@ class Dose:
         if output_folder:
             dmap.to_csv(output_folder + 'distancemap.csv')
         return dmap
+    
     def make_geo_shapes(self):
         self.dfr['rect'] = self.dfr.apply(make_rect_column, axis=1)
         self.dfs['tubeP'] = self.dfs.apply(make_point_columns,
@@ -541,7 +600,7 @@ class Dose:
                          kV,
                          in_beam=False,
                          wall_leq=0,
-                         bucky_leq=2):
+                         bucky_leq=1):
         transmission = self.get_transmission(wall_leq + bucky_leq, 'Lead', kV)
         if in_beam:
             return (DAP/beam_area * (d_tube_target/d_tube_room)**2
@@ -566,6 +625,7 @@ class Dose:
         S = ((a*angle**4 + b*angle**3 + c*angle**2 + d*angle + e)
              * ((kV-85)*f + 1)
             )
+#        S= 0.031 * kV + 2.5
         return S * DAP / distance**2 * transmission
 
     def get_tertiary_dose(self, DAP, distance, ceiling_height,
@@ -635,6 +695,8 @@ class Dose:
         dfg = self.df.groupby(['det_code', 'kV'])
         DAP, mAs = dfg.DAP.sum(), dfg.mAs.sum()
         workload = pd.DataFrame([DAP, mAs]).T
+        
+        dose_bytube = doses.sum(level=(0, 2))
 
         dose_short = doses.sum(level=2)
         dose_short = dose_short.T
@@ -643,6 +705,8 @@ class Dose:
 
         factors = pd.Series(get_dose_rescale_factor(self.df, True))
 
+        dose_bytube.to_csv('%s/%s_doses_by_tube.csv'
+                          % (output_folder, output_name))
         dose_short.to_csv('%s/%s_doses_summary.csv'
                           % (output_folder, output_name))
         workload.to_csv('%s/%s_workload.csv'
@@ -732,6 +796,7 @@ def add_arrow_to_ax(ax, P1, P2, text):
         ax.text(*(p1+.25), text)
 def color_from_wall_weight(wall_weight):
     return cm.viridis.colors[int(wall_weight)*9+30]
+
 #Reporting and graphing
 class Report:
     def __init__(self, D, output_folder=False):
@@ -768,6 +833,7 @@ class Report:
         fig.tight_layout()
         if self.output_folder:
             fig.savefig(self.output_folder + 'ogp_stats.pdf')
+            plt.close(fig)
         else:
             fig.show()
 
@@ -798,7 +864,6 @@ class Report:
             self.table.to_excel(self.output_folder + 'results_table.xlsx')
             with open(self.output_folder + 'results_table_latex.txt','w') as f:
                  f.write(self.table.to_latex())
-
 
     def source_workload_plots(self):
         dfp = pd.pivot_table(self.D.df.reset_index(),
@@ -834,6 +899,7 @@ class Report:
                 )
         if self.output_folder:
             fig.savefig(self.output_folder + 'workload_plots.pdf')
+            plt.close(fig)
         else:
             fig.show()
 
@@ -888,6 +954,7 @@ class Report:
             else:
                 save_fn = 'room_overlay.pdf'
             fig.savefig(self.output_folder + save_fn, bbox_inches='tight')
+            plt.close(fig)
         else:
             fig.show()
 
@@ -917,13 +984,13 @@ def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
     D = Dose(exi_fn, dfs_fn=dfs_fn, dfr_fn=dfr_fn)
     D.get_lead_req(iterations=3)
     D.save_verbose_data(output_folder+'verbose', room_name)
-    D.export_distancemap(output_folder+'verbose')
+    D.export_distancemap(output_folder+'verbose/')
     R = Report(D, output_folder)
     try:
         R.show_room(imname)        
     except Exception as e:
         print(e)
-    make_xraybarr_spectrum_set(exi_fn, room_name, output_folder + 'XRAYBARRspectrums/')
+    make_xraybarr_spectrum_set(exi_fn, room_name, output_folder + 'XRAYBARRspectrums/', D)
     
 if __name__ == '__main__':
 #    full_report('sample_exi_log.csv','input_sources.csv','input_rooms.csv','output/','testroom1')
