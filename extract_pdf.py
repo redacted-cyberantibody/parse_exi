@@ -5,11 +5,13 @@ Created on Tue May  1 11:05:24 2018
 @author: WilliamCh
 """
 
+import tkinter as tk
 from tkinter import filedialog
 from tkinter import simpledialog
 from pdf2image import convert_from_path
 import os
 
+#application_window = tk.Tk()
 page_start = simpledialog.askinteger('First extraction page','Choose a starting page for image extraction')
 page_end = simpledialog.askinteger('Last extraction page', 'Choose and ending page for image extraction')
 fn = filedialog.askopenfilename()
