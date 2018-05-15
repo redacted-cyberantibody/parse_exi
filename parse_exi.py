@@ -245,7 +245,7 @@ def convert_DAP_to_Gycm2(df):
     df.DAP = df.DAP/100
     return df
 
-def import_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
+def import_exi_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
     device_list = pd.read_csv(device_list_fn, index_col='index')
     df = (pd.read_csv(exi_fn)
           .pipe(strip_df)
@@ -259,7 +259,58 @@ def import_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
           .pipe(convert_DAP_to_Gycm2)
          )
     return df
+#%%
+def drop_nan_rows(df):
+    nan_mask = (df != df).any(axis=1)
+    if nan_mask.any():
+        print('The following rows have been excluded '
+              + 'from an input file due to parsing issues:')
+        print(df[nan_mask])
+        print('Consider removing extraneous whitespace from input files')
+        df = df.loc[~nan_mask, :]
+    return df
 
+def flag_duplicated_index(df):
+    duplicated_indices = df[df.index.duplicated(keep=False)].index.unique()
+    if len(duplicated_indices) > 1:
+        print('Duplicated indices detected in an input file:')
+        print(duplicated_indices)
+    for duplicated_index in duplicated_indices:
+        i = 0
+        new_index = []
+        for j, item in enumerate(df.index):
+            if item == duplicated_index:
+                new_index.append(item+str(i))
+                i = i+1
+            else:
+                new_index.append(item)
+        df.index = new_index
+    return df
+
+#Import room file
+def import_room_data(input_fn, index_name):
+    df = (pd.read_csv(input_fn,index_col=index_name)
+        .pipe(strip_df)
+        .pipe(drop_nan_rows)
+        .pipe(flag_duplicated_index))
+    df[index_name] = df.index
+    return df
+
+def import_dfr(dfr_fn):
+    dfr = import_room_data(dfr_fn, 'Zone')
+    dfr['added_attenuation'] = 0
+    dfr.index = dfr.Zone
+    #If coordinates are in imagej format:
+    if 'BX' in dfr.columns:
+        dfr['x1'] = dfr.BX
+        dfr['y1'] = dfr.BY - dfr.Height
+        dfr['x2'] = dfr.BX + dfr.Width
+        dfr['y2'] = dfr.BY
+    return dfr
+
+def import_dfs(dfs_fn):
+    return import_room_data(dfs_fn, 'det_mode')
+    
 #%%
 #Functions that compute potentially useful statistics and values
 def get_usage_during_periods(timestamps, dap):
@@ -389,7 +440,7 @@ def make_xraybarr_spectrum_set(room_name='default',
     if D:
         df = D.df.copy()
     else:
-        df = import_data(exi_fn=exi_fn)
+        df = import_exi_data(exi_fn=exi_fn)
         
     if not rescale_factor:
         rescale_factor = get_dose_rescale_factor(df)
@@ -480,6 +531,7 @@ def make_distancemap(dfr, dfs):
             rect_ext = LinearRing(room_rect.exterior.coords)
             if Srow.floor_target:
                 output_dic['angle'] = 90
+                output_dic['in_p_beam'] = False
             else:
                 room_closest_point_projection = rect_ext.project(
                     target_loc)
@@ -489,12 +541,10 @@ def make_distancemap(dfr, dfs):
                     [target_loc, room_closest_point])
                 output_dic['angle'] = get_angle_from_lines(
                     tube_target_line, target_room_line)
-
-            if Srow.floor_target:
-                output_dic['in_p_beam'] = False
-            else:
+                tube_room_line = LineString(
+                    [tube_loc, room_closest_point])
                 output_dic['in_p_beam'] = is_room_in_beam(
-                    tube_target_line, rect_ext)
+                    tube_target_line, tube_room_line)
 
             distancemap[Srow.det_mode][Rrow.Zone] = output_dic
     return distancemap
@@ -517,14 +567,11 @@ def get_angle_from_lines(l1, l2):
     return (
         np.arccos(v1.dot(v2) / (sum(v1**2)**.5 * sum(v2**2)**.5)) * 180/np.pi)
 
-def is_room_in_beam(beam_line, room_ext):
-    l = np.array(beam_line)
-    p1 = l[0, :]
-    p2 = l[1, :]
-    v = p2 - p1
-    p2 = p1 + v*1000
-    beam_line_extended = LineString([p1, p2])
-    return beam_line_extended.intersects(room_ext)
+def is_room_in_beam(tube_target_line, tube_room_line):
+    angle = get_angle_from_lines(tube_target_line, tube_room_line)
+    if angle < 22.5:
+        return True
+    return False
 
 def make_point_columns(row, xn, yn):
     return Point(row[xn], row[yn])
@@ -538,8 +585,8 @@ class Dose:
                  dfs_fn='input_sources.csv',
                  att_coeff_fn='input_shielding_coefficients.csv'):
 
-        self.df = import_data(exi_fn=exi_fn)
-        self.import_dfr(dfr_fn)
+        self.df = import_exi_data(exi_fn=exi_fn)
+        self.dfr = import_dfr(dfr_fn)
 
         self.dfs = pd.read_csv(dfs_fn)
         self.dfs = self.dfs.where(self.dfs == self.dfs, '')
@@ -554,15 +601,8 @@ class Dose:
         self.detector_LEQ = 0
 
     def import_dfr(self, dfr_fn):
-        self.dfr = pd.read_csv(dfr_fn)
-        self.dfr['added_attenuation'] = 0
-        self.dfr.index = self.dfr.Zone
-        #If coordinates are in imagej format:
-        if 'BX' in self.dfr.columns:
-            self.dfr['x1'] = self.dfr.BX
-            self.dfr['y1'] = self.dfr.BY - self.dfr.Height
-            self.dfr['x2'] = self.dfr.BX + self.dfr.Width
-            self.dfr['y2'] = self.dfr.BY
+        self.dfr = import_dfr(dfr_fn)
+
 
     def get_factors(self):
         return (self.conservatism,
@@ -758,7 +798,6 @@ class Dose:
                 self.dfr['required_transmission'] = (
                     self.dfr.Limit / self.dfr.raw_dose)
 
-
             #Converts dose for entire Exi log to dose per week in uGy
             #todo: double check this conversion.
             doses = (doses.sum()).T
@@ -848,7 +887,7 @@ class Report:
         dfopg_view.N_studies.plot(kind='bar', ax=axes[0], sharex=True)
         axes[0].set_ylabel('Number of studies')
         dfopg_view.DAP_sum.plot(kind='bar', ax=axes[1])
-        axes[1].set_ylabel('Total DAP uGy/m^2')
+        axes[1].set_ylabel(r'Total DAP $\mu$Gy/m$^2$')
         dfopg_view.kV_mean.plot(kind='bar',
                                  ax=axes[2], sharex=True,
                                  yerr=dfopg_view.kV_std)
@@ -942,10 +981,10 @@ class Report:
 
         for i, row in self.D.dfr.iterrows():
             text = row.Zone
-            text = text + '\nRaw dose: ' + str(row.Constraint) + ' uSv/wk'
+            text = text + '\nLimit: ' + str(row.Constraint) + r' $\mu$Sv/wk'
             text = text + '\nT: ' + str(row.Occupancy)
             if self.D.dfr.added_attenuation.any():
-                text = text + '\n '+str(row.wall_weight) + ' kg/m^2'
+                text = text + '\n '+str(row.wall_weight) + r' kg/m$^2$'
                 color = color_from_wall_weight(row.wall_weight)
             else:
                 color = color_from_wall_weight(0)
@@ -959,7 +998,7 @@ class Report:
             legend_weights = np.arange(0, 25.1, 5)
             legend_colors = [color_from_wall_weight(w) for w in legend_weights]
             legend_lines = [Line2D([0], [0], color=c, lw=4) for c in legend_colors]
-            legend_labels = [str(w) + ' kg/m^2' for w in legend_weights]
+            legend_labels = [str(w) + r' kg/m$^2$' for w in legend_weights]
             ax.legend(legend_lines, legend_labels, loc=6,
                       bbox_to_anchor=(1, 0.5))
             
