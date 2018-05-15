@@ -72,6 +72,10 @@ def enforce_column_types(df, device_list):
                 df.loc[df[col]=='',col] = 0
             except:
                 pass
+            if df[col].dtype == 'O':
+                df.loc[df[col] == '', [col]] = 0
+                df[col] = df[col].str.strip()
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         df[col] = df[col].astype(column_types[col], errors='ignore')
         mask = df[col] != df[col]
         df.loc[mask,col] = 0
@@ -135,9 +139,9 @@ def analyse_organ_protocol(df):
         view -- Ideally an indication of which view was used
         age -- Some OGPs include age. Not all exposures have this entry
     """
-    OGP = df.OGP.copy()
     #Remove *, they're doing nothing for us
-    OGP = OGP.str.replace('*', '')
+    df.OGP = df.OGP.str.replace('*', '')
+    OGP = df.OGP.copy()
 
     #Split up the OGP into words
     OGP_split = OGP.str.split(' ')
@@ -246,7 +250,7 @@ def import_data(exi_fn='sample_exi_log.csv', device_list_fn='device_list.csv'):
     df = (pd.read_csv(exi_fn)
           .pipe(strip_df)
           .pipe(standardise_df_columns, device_list)
-          .pipe(enforce_column_types,device_list)
+          .pipe(enforce_column_types, device_list)
           .pipe(calculate_beam_area)
           .pipe(remove_spurious_data)
           .pipe(format_date)
@@ -370,7 +374,8 @@ def create_xraybarr_spectrum(df, mask=None):
 def save_xraybarr_spectrum(df,
                            mask,
                            output_folder='output/',
-                           spectrum_name='default_spectrum'):
+                           spectrum_name='default_spectrum',
+                           ):
 
     output_list, mAs_by_kV = create_xraybarr_spectrum(df, mask)
     with open(output_folder+spectrum_name+'.spe', 'w') as file:
@@ -380,15 +385,16 @@ def make_xraybarr_spectrum_set(room_name='default',
                                output_folder='output/',
                                D=None,
                                exi_fn=None,
-                              ):
+                              rescale_factor=None):
     if D:
-        df = D.df
+        df = D.df.copy()
     else:
         df = import_data(exi_fn=exi_fn)
         
-    ratio = get_dose_rescale_factor(df)
+    if not rescale_factor:
+        rescale_factor = get_dose_rescale_factor(df)
     #mAs needs to be in mAmin/week, not year
-    df.mAs = df.mAs * ratio
+    df.mAs = df.mAs * rescale_factor
 
     categories = df.det_code.unique()
     masks = [df.det_code == category for category in categories]
@@ -542,6 +548,10 @@ class Dose:
 
         self.dmap = make_distancemap(self.dfr, self.dfs)
         self.make_geo_shapes()
+        
+        self.exi_rescale_factor = get_dose_rescale_factor(self.df)
+        self.conservatism = 1
+        self.detector_LEQ = 0
 
     def import_dfr(self, dfr_fn):
         self.dfr = pd.read_csv(dfr_fn)
@@ -553,6 +563,17 @@ class Dose:
             self.dfr['y1'] = self.dfr.BY - self.dfr.Height
             self.dfr['x2'] = self.dfr.BX + self.dfr.Width
             self.dfr['y2'] = self.dfr.BY
+
+    def get_factors(self):
+        return (self.conservatism,
+                self.exi_rescale_factor,
+                self.detector_LEQ)
+
+    def set_factors(self, conservatism, dose_rescale_factor,
+                    detector_LEQ):
+        self.conservatism = conservatism
+        self.exi_rescale_factor = dose_rescale_factor
+        self.detector_LEQ = detector_LEQ
 
     def export_distancemap(self, output_folder=False):
         dmap = {(outerKey, innerKey): values
@@ -600,9 +621,8 @@ class Dose:
                          d_tube_room,
                          kV,
                          in_beam=False,
-                         wall_leq=0,
-                         bucky_leq=1):
-        transmission = self.get_transmission(wall_leq + bucky_leq, 'Lead', kV)
+                         wall_leq=0):
+        transmission = self.get_transmission(wall_leq + self.detector_LEQ, 'Lead', kV)
         if in_beam:
             return (DAP/beam_area * (d_tube_target/d_tube_room)**2
                     * 1e6 * transmission)
@@ -683,7 +703,7 @@ class Dose:
         df = self.df
         df = df.groupby(['det_code', 'kV'])
         output = df.apply(self.calculate_dose_for_df_row, ignore_attenuation)
-        output = output * get_dose_rescale_factor(self.df)
+        output = output * self.exi_rescale_factor * self.conservatism
         output.index = output.index.rename('contribution', level=2)
         return output
 
@@ -822,15 +842,16 @@ class Report:
         fig, axes = plt.subplots(nrows=3, ncols=1)
         fig.set_size_inches(14, 12)
 
-        mask = dfogp.DAP_sum > dfogp.DAP_sum.quantile(.5)
+#        mask = dfogp.DAP_sum > dfogp.DAP_sum.quantile(.5)
+        dfopg_view = dfogp.nlargest(25,'DAP_sum')
 
-        dfogp[mask].N_studies.plot(kind='bar', ax=axes[0], sharex=True)
+        dfopg_view.N_studies.plot(kind='bar', ax=axes[0], sharex=True)
         axes[0].set_ylabel('Number of studies')
-        dfogp[mask].DAP_sum.plot(kind='bar', ax=axes[1])
+        dfopg_view.DAP_sum.plot(kind='bar', ax=axes[1])
         axes[1].set_ylabel('Total DAP uGy/m^2')
-        dfogp[mask].kV_mean.plot(kind='bar',
+        dfopg_view.kV_mean.plot(kind='bar',
                                  ax=axes[2], sharex=True,
-                                 yerr=dfogp[mask].kV_std)
+                                 yerr=dfopg_view.kV_std)
         axes[2].set_ylabel('kVp')
         axes[2].set_xlabel('Organ protocol')
 
@@ -921,8 +942,8 @@ class Report:
 
         for i, row in self.D.dfr.iterrows():
             text = row.Zone
-            text= text + '\nConstraint: ' + str(row.Constraint) + ' uSv/week'
-            text = text + '\nO: ' + str(row.Occupancy)
+            text = text + '\nRaw dose: ' + str(row.Constraint) + ' uSv/wk'
+            text = text + '\nT: ' + str(row.Occupancy)
             if self.D.dfr.added_attenuation.any():
                 text = text + '\n '+str(row.wall_weight) + ' kg/m^2'
                 color = color_from_wall_weight(row.wall_weight)
@@ -943,14 +964,16 @@ class Report:
                       bbox_to_anchor=(1, 0.5))
             
         ax.set_title('Floor plan')
-        ax.set_xlim(*xrange)
-        ax.set_ylim(*yrange)
-        ax.set_aspect(1)
         
         if im_fn:
-            self.image_room_overlay(ax,im_fn)
-            
-
+            scale = self.image_room_overlay(ax,im_fn)
+            ax.set_xlim(min(0,xrange[0]), max(scale[0],xrange[1]))
+            ax.set_ylim(min(0,yrange[0]), max(scale[1],yrange[1]))
+        else:
+            ax.set_xlim(*xrange)
+            ax.set_ylim(*yrange)
+        ax.set_aspect(1)
+        
         
         if self.output_folder:
             if not im_fn:
@@ -969,10 +992,8 @@ class Report:
         except:
             return
         scale = (np.array(im.size)/res).astype('float')
-        ax.set_xlim(0, scale[0])
-        ax.set_ylim(0, scale[1])
-        ax.set_aspect(1)
         ax.imshow(im, extent=[0,scale[0],0,scale[1]])
+        return scale
     
     def full_report(self):
         for fn in [self.output_folder,
@@ -998,18 +1019,17 @@ def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
             os.mkdir(fn)
         except:
             pass
-    output_folder = folder+room_name+'/'
+#    output_folder = folder+room_name+'/'
     
     D = Dose(exi_fn, dfs_fn=dfs_fn, dfr_fn=dfr_fn)
     D.get_lead_req(iterations=3)
-    D.save_verbose_data(output_folder+'verbose', room_name)
-    D.export_distancemap(output_folder+'verbose/')
-    R = Report(D, output_folder)
+    R = Report(D, folder, room_name)
+    R.full_report()
+    
     try:
         R.show_room(imname)        
     except Exception as e:
         print(e)
-    make_xraybarr_spectrum_set(exi_fn, room_name, output_folder + 'XRAYBARRspectrums/', D)
     
 if __name__ == '__main__':
 #    full_report('sample_exi_log.csv','input_sources.csv','input_rooms.csv','output/','testroom1')
