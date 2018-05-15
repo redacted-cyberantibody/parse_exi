@@ -53,8 +53,8 @@ class InputFrame(Frame):
         self.ogpbtn = Button(self,text = "OGP stats")
         self.ogpbtn.grid(row = 7, column = 2)
         
-        self.reportbtn = Button(self,text = "Save plots")
-        self.reportbtn.grid(columnspan = 3)  
+        self.plotsavebtn = Button(self,text = "Save plots")
+        self.plotsavebtn.grid(columnspan = 3)  
         
         self.xraybarrbtn = Button(self,text = "Create XRAYBARR spectrums from Exi")
         self.xraybarrbtn.grid(columnspan = 3)
@@ -65,6 +65,7 @@ class InputFrame(Frame):
 class TextFrame(Frame):
     def __init__ (self, master):
         Frame.__init__ (self, master)
+        
         Label(self,text = "Room name").grid()
         self.room_name = Entry(self)
         self.room_name.grid(row = 0, column = 1)
@@ -73,9 +74,13 @@ class TextFrame(Frame):
         self.conservatism = Entry(self)
         self.conservatism.grid(row = 1, column = 1)
         
-        Label(self,text = "EXI rescale factor (override)").grid()
+        Label(self,text = "EXI rescale factor override").grid()
         self.exi_rescale = Entry(self)
         self.exi_rescale.grid(row = 2, column = 1)
+        
+        Label(self,text = "Detector attenuation (mm lead)").grid()
+        self.detector_LEQ = Entry(self)
+        self.detector_LEQ.grid(row = 3, column = 1)
          
 class DataFrame(Frame):
     def __init__ (self, master):
@@ -108,10 +113,17 @@ class Controller:
         self.room_name = StringVar()
         self.source_fn = StringVar()
         self.room_fn = StringVar()
+        self.detector_LEQ = StringVar()
+
         
         self.exi_fn.set('sample_exi_log.csv')
         self.source_fn.set('input_sources.csv')
         self.room_fn.set('input_rooms.csv')
+        
+        self.room_name.set('Default xray room')
+        self.conservatism.set(1)
+        self.exi_rescale.set(1)
+        self.detector_LEQ.set(0)
         
         self.view.input_frame.exi_entry.configure(textvariable = self.exi_fn)
         self.view.input_frame.source_entry.configure(textvariable = self.source_fn)
@@ -119,6 +131,7 @@ class Controller:
         self.view.text_frame.room_name.configure(textvariable = self.room_name)
         self.view.text_frame.conservatism.configure(textvariable = self.conservatism)
         self.view.text_frame.exi_rescale.configure(textvariable = self.exi_rescale)
+        self.view.text_frame.detector_LEQ.configure(textvariable = self.detector_LEQ)
         
         self.view.input_frame.exi_btn.bind("<Button-1>",lambda x: self.choose_file(self.exi_fn))
         self.view.input_frame.room_btn.bind("<Button-1>",lambda x: self.choose_file(self.room_fn))
@@ -128,8 +141,8 @@ class Controller:
         self.view.input_frame.dosebtn.bind("<Button-1>",self.get_dose_to_rooms)
         self.view.input_frame.leadbtn.bind("<Button-1>",self.get_lead_required)
         self.view.input_frame.xraybarrbtn.bind("<Button-1>",self.export_for_xraybarr)
+        self.view.input_frame.plotsavebtn.bind("<Button-1>",self.save_plots)
         self.view.input_frame.verbosebtn.bind("<Button-1>",self.verbose_report)
-        self.view.input_frame.reportbtn.bind("<Button-1>",self.produce_report)
         self.view.input_frame.roombtn.bind("<Button-1>",self.show_room)
         self.view.input_frame.workloadbtn.bind("<Button-1>",self.show_workload)
         self.view.input_frame.ogpbtn.bind("<Button-1>",self.show_OGP_stats)
@@ -164,14 +177,17 @@ class Controller:
                              dfr_fn = self.room_fn.get(),
                              dfs_fn = self.source_fn.get())
             self.update_output('Loaded input files')
+            self. get_factors()
         except Exception as e:
             self.update_output('Failed to load input files',e)
         
+       
     def get_dose_to_rooms(self,event):
         try:
             self.D
         except Exception as e:
             self.update_output('input files not loaded')
+        self.set_factors()
         a = self.D.calculate_dose()
         self.update_output('Weekly dose (uGy)',
                             a.sum())
@@ -181,6 +197,7 @@ class Controller:
             self.D
         except Exception as e:
             self.update_output('input files not loaded')
+        self.set_factors()
         a,b,c,d = self.D.get_lead_req(iterations = 3)
         
         #self.D.dfr[['added_attenuation','wall_weight']]
@@ -192,6 +209,7 @@ class Controller:
             self.update_output('No output folder selected, try again')
             return
         try:
+            self.set_factors()
             pe.make_xraybarr_spectrum_set(self.exi_fn.get(), room_name=self.room_name.get(), output_folder=output_folder)
             self.update_output('Exported for XRAYBARR','folder: '+output_folder)
         except Exception as e:
@@ -214,17 +232,33 @@ class Controller:
         R = pe.Report(self.D, output_folder, self.room_name.get())
         R.full_report()
     
-    def produce_report(self,event):
+    def save_plots(self,event):
         output_folder = self.choose_folder()+'/'
         if not output_folder:
             self.update_output('No output folder selected, try again')
             return
-        #try:
-        #R = pe.Report(self.D, output_folder=output_folder, room_name=self.room_name.get())
-        #R.full_report()
-        #except:
-        #    self.update_output('Could not produce reports')
+        try:
+            R = pe.Report(self.D, output_folder=output_folder, room_name=self.room_name.get())
+        except:
+            self.update_output('Could not produce reports')
     
+    def get_factors(self):
+        try:
+            conserv, rescale, det_att = self.D.get_factors()
+            self.conservatism.set(conserv)
+            self.exi_rescale.set(rescale)
+            self.detector_LEQ.set(det_att)
+        except:
+            self.update_output('Failed to update factors')
+        
+    def set_factors(self):
+        try:
+            self.D.set_factors(float(self.conservatism.get()),
+                                float(self.exi_rescale.get()),
+                                float(self.detector_LEQ.get()))
+        except Exception as e:
+            self.update_output('Failed to update factors',str(e))
+            
     def show_room(self,event):
         pe.Report(self.D).show_room()
     
