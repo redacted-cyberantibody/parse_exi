@@ -35,6 +35,12 @@ class InputFrame(Frame):
         self.room_btn = Button(self,text = "Choose")
         self.room_btn.grid(row = 2, column = 2)
         
+        Label(self,text = "Image input").grid()
+        self.img_entry = Entry(self)
+        self.img_entry.grid(row = 3, column = 1)
+        self.img_btn = Button(self,text = "Choose")
+        self.img_btn.grid(row = 3, column = 2)
+        
         self.loadbtn = Button(self,text = "Load input files")
         self.loadbtn.grid(columnspan = 3)
         
@@ -113,6 +119,7 @@ class Controller:
         self.room_name = StringVar()
         self.source_fn = StringVar()
         self.room_fn = StringVar()
+        self.im_fn = StringVar()
         self.detector_LEQ = StringVar()
 
         
@@ -128,6 +135,7 @@ class Controller:
         self.view.input_frame.exi_entry.configure(textvariable = self.exi_fn)
         self.view.input_frame.source_entry.configure(textvariable = self.source_fn)
         self.view.input_frame.room_entry.configure(textvariable = self.room_fn)
+        self.view.input_frame.img_entry.configure(textvariable = self.im_fn)
         self.view.text_frame.room_name.configure(textvariable = self.room_name)
         self.view.text_frame.conservatism.configure(textvariable = self.conservatism)
         self.view.text_frame.exi_rescale.configure(textvariable = self.exi_rescale)
@@ -136,6 +144,7 @@ class Controller:
         self.view.input_frame.exi_btn.bind("<Button-1>",lambda x: self.choose_file(self.exi_fn))
         self.view.input_frame.room_btn.bind("<Button-1>",lambda x: self.choose_file(self.room_fn))
         self.view.input_frame.source_btn.bind("<Button-1>",lambda x: self.choose_file(self.source_fn))
+        self.view.input_frame.img_btn.bind("<Button-1>", self.choose_im_fn)
         
         self.view.input_frame.loadbtn.bind("<Button-1>",self.load_input_files)
         self.view.input_frame.dosebtn.bind("<Button-1>",self.get_dose_to_rooms)
@@ -166,6 +175,11 @@ class Controller:
     def choose_folder(self):
         fn = filedialog.askdirectory (title = "Select location for created spectrum files")
         return fn
+        
+    def choose_im_fn(self, event):
+        fn = filedialog.askopenfilename(title = "Select file",filetypes = (("tif files","*.tif"),("all files","*.*")))
+        self.im_fn.set(fn)
+        print(fn)
     
     def update_output(self,heading='',data=''):
         self.output_text.set(heading)
@@ -229,7 +243,7 @@ class Controller:
         except Exception as e:
             self.update_output('input files not loaded', str(e))
             return
-        R = pe.Report(self.D, output_folder, self.room_name.get())
+        R = pe.Report(self.D, output_folder, self.room_name.get(), im_fn=self.im_fn.get())
         R.full_report()
     
     def save_plots(self,event):
@@ -238,7 +252,7 @@ class Controller:
             self.update_output('No output folder selected, try again')
             return
         try:
-            R = pe.Report(self.D, output_folder=output_folder, room_name=self.room_name.get())
+            R = pe.Report(self.D, output_folder=output_folder, room_name=self.room_name.get(), im_fn=self.im_fn.get())
         except:
             self.update_output('Could not produce reports')
     
@@ -260,7 +274,10 @@ class Controller:
             self.update_output('Failed to update factors',str(e))
             
     def show_room(self,event):
-        pe.Report(self.D).show_room()
+        if self.im_fn.get() != '':
+            pe.Report(self.D).show_room(im_fn=self.im_fn.get())
+        else:
+            pe.Report(self.D).show_room()
     
     def show_workload(self,event):
         pe.Report(self.D).source_workload_plots()

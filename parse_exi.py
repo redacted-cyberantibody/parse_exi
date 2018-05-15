@@ -859,7 +859,8 @@ def color_from_wall_weight(wall_weight):
 
 #Reporting and graphing
 class Report:
-    def __init__(self, D, output_folder=False, room_name='default xray room'):
+    def __init__(self, D, output_folder=False, room_name='default xray room',
+                 im_fn=None):
         self.D = D
         self.output_folder = output_folder
         if self.output_folder:
@@ -874,6 +875,9 @@ class Report:
             self.room_lead_table()
             self.source_workload_plots()
             self.show_room()
+            self.im_fn = im_fn
+            if im_fn:
+                self.show_room(im_fn)
 
     def OGP_workload_plot(self):
         #Big plot showing all the organ protocol data
@@ -984,7 +988,7 @@ class Report:
             text = text + '\nLimit: ' + str(row.Constraint) + r' $\mu$Sv/wk'
             text = text + '\nT: ' + str(row.Occupancy)
             if self.D.dfr.added_attenuation.any():
-                text = text + '\n '+str(row.wall_weight) + r' kg/m$^2$'
+                text = text + '\n '+str(int(row.wall_weight)) + r' kg/m$^2$'
                 color = color_from_wall_weight(row.wall_weight)
             else:
                 color = color_from_wall_weight(0)
@@ -998,7 +1002,7 @@ class Report:
             legend_weights = np.arange(0, 25.1, 5)
             legend_colors = [color_from_wall_weight(w) for w in legend_weights]
             legend_lines = [Line2D([0], [0], color=c, lw=4) for c in legend_colors]
-            legend_labels = [str(w) + r' kg/m$^2$' for w in legend_weights]
+            legend_labels = [str(int(w)) + r' kg/m$^2$' for w in legend_weights]
             ax.legend(legend_lines, legend_labels, loc=6,
                       bbox_to_anchor=(1, 0.5))
             
@@ -1066,7 +1070,7 @@ def full_report(exi_fn, dfs_fn, dfr_fn, folder, room_name, imname = None):
     R.full_report()
     
     try:
-        R.show_room(imname)        
+        R.show_room(imname)
     except Exception as e:
         print(e)
     
