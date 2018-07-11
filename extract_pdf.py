@@ -11,9 +11,11 @@ from tkinter import simpledialog
 from pdf2image import convert_from_path
 import os
 
-#application_window = tk.Tk()
-page_start = simpledialog.askinteger('First extraction page','Choose a starting page for image extraction')
-page_end = simpledialog.askinteger('Last extraction page', 'Choose and ending page for image extraction')
+application_window = tk.Tk()
+page_start = simpledialog.askinteger('First extraction page',
+                                     'Choose a starting page for image extraction')
+page_end = simpledialog.askinteger('Last extraction page',
+                                   'Choose an ending page for image extraction')
 fn = filedialog.askopenfilename()
 fn_split = fn.split('/')
 name = fn_split[-1]
@@ -28,5 +30,8 @@ output_folder = output_folder + '/'
 pages = convert_from_path(fn, first_page=page_start, last_page=page_end)
 
 for i, page in enumerate(pages):
-    print(str(i) + ' out of ' + len(pages))
-    page.save(folder + name.split('.')[0]+str(i+1)+'.png')
+    if len(pages) == 1:
+        page.save("{0}{1}.png".format(output_folder, name.split('.')[0]))
+        break
+    print(str(i) + ' out of ' + str(len(pages)))
+    page.save("{0}{1}_{2}.png".format(output_folder, name.split('.')[0], i))

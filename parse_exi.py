@@ -353,7 +353,7 @@ def get_dose_rescale_factor(df, breakdown=False):
         return {'exi_duration_rescale':exi_duration_rescale,
                 'weekend_rescale':weekend_rescale,
                 'busy_period_rescale':busy_period_rescale,
-                'total':rescale_factor}
+                'total_rescale_factor':rescale_factor}
     return rescale_factor
 
 def lead_to_weight(thickness, commercial_weight=0.44):
@@ -478,9 +478,7 @@ def make_xraybarr_barrier_setup(D, output_folder, room_name, mask_dict):
     tubes = ['T', 'T', 'W', 'C', '2C']
     names = ['Tlarge', 'Tsmall','W','C','2C']
     rooms = D.dmap['T'].keys()
-#    mapping_data = {}
-#    dict_of_df = {k: pd.DataFrame(v) for k,v in D.dmap.items()}
-#    df = pd.concat(dict_of_df, axis=1).T
+
     for room in rooms:
         #MAKE THE HEADER
         head_map = {'institution':'AUTO HOSPITAL',
@@ -492,6 +490,8 @@ def make_xraybarr_barrier_setup(D, output_folder, room_name, mask_dict):
         
         #Make all the tubes
         for i in range(len(tubes)):
+            if names[i] not in mask_dict.keys():
+                continue
             tube_map = D.dmap[tubes[i]][room]
             tube_map['in_p_beam'] = int(tube_map['in_p_beam'])
             tube_map['name'] = names[i]
@@ -764,8 +764,6 @@ class Dose:
         dose_short['total'] = dose_short.sum(axis=1)
         dose_short = dose_short.T
 
-        factors = pd.Series(get_dose_rescale_factor(self.df, True))
-
         dose_bytube.to_csv('%s/%s_doses_by_tube.csv'
                           % (output_folder, output_name))
         dose_short.to_csv('%s/%s_doses_summary.csv'
@@ -773,10 +771,10 @@ class Dose:
         workload.to_csv('%s/%s_workload.csv'
                         % (output_folder, output_name))
         doses.to_csv('%s/%s_doses.csv' % (output_folder, output_name))
-        factors.to_csv('%s/%s_factors.csv' % (output_folder, output_name))
+
         self.export_distancemap().to_csv('%s/%s_distances.csv'
                                          % (output_folder, output_name))
-        return workload, doses, dose_short, factors
+        return workload, doses, dose_short
 
     def get_lead_req(self,
                      iterations=3):
@@ -891,7 +889,7 @@ class Report:
         dfopg_view.N_studies.plot(kind='bar', ax=axes[0], sharex=True)
         axes[0].set_ylabel('Number of studies')
         dfopg_view.DAP_sum.plot(kind='bar', ax=axes[1])
-        axes[1].set_ylabel(r'Total DAP $\mu$Gy/m$^2$')
+        axes[1].set_ylabel(r'Total DAP $Gy/cm$^2$')
         dfopg_view.kV_mean.plot(kind='bar',
                                  ax=axes[2], sharex=True,
                                  yerr=dfopg_view.kV_std)
@@ -932,6 +930,13 @@ class Report:
             self.table.to_excel(self.output_folder + 'results_table.xlsx')
             with open(self.output_folder + 'results_table_latex.txt','w') as f:
                  f.write(self.table.to_latex())
+            factors = get_dose_rescale_factor(self.df, True)
+            factors['total_dap'] = self.df.DAP.sum() * factors['total_rescale_factor']
+            factors['total_mAmin'] = self.df.mAs.sum() * factors['total_rescale_factor'] / 60
+            factors['number_studies'] = np.round(self.df.mAs.count() * factors['total_rescale_factor'])
+            factors['maximum_lead_requirement'] = self.dfr.wall_weight.max()
+            factors = pd.Series(factors)
+            factors.to_csv('%s/workload_factors_summary.csv' % (output_folder, output_name))
 
     def source_workload_plots(self):
         dfp = pd.pivot_table(self.D.df.reset_index(),
@@ -941,7 +946,7 @@ class Report:
                              aggfunc=np.sum,
                             )
         kvs = np.arange(dfp.index.unique().min(), dfp.index.unique().max()+1)
-        dfp = dfp.loc[kvs]
+        dfp = dfp.loc[kvs,:]
         dfp[dfp != dfp] = 0
         namemap = self.D.dfs[['det_mode', 'exam_type']]
         namemap.index = namemap.det_mode
@@ -956,8 +961,7 @@ class Report:
                                 )
         axes = axes.reshape(6,)
         
-        
-        dfp.plot(ax=axes, subplots=True, drawstyle="steps")
+        dfp.plot(ax=axes[:len(dfp.columns)], subplots=True, drawstyle="steps")
         
         #fig.subplots_adjust(wspace=0, hspace=0)
         fig.tight_layout()

@@ -1,12 +1,11 @@
 # lbs2kgs.py
-from tkinter import *
-from functools import partial
+from tkinter import Tk, Frame, Entry, Button, Label, StringVar, LEFT
 from tkinter import filedialog
 from tkinter import simpledialog
 
-from shapely.geometry import Polygon,Point,box,LinearRing,LineString
-import numpy as np
-import pandas as pd
+#from shapely.geometry import Polygon,Point,box,LinearRing,LineString
+#import numpy as np
+#import pandas as pd
 
 import matplotlib.backends.tkagg as tkagg
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -44,10 +43,10 @@ class InputFrame(Frame):
         self.loadbtn = Button(self,text = "Load input files")
         self.loadbtn.grid(columnspan = 3)
         
-        self.dosebtn = Button(self,text = "Dose to rooms")
+        self.dosebtn = Button(self,text = "Calculate dose to rooms")
         self.dosebtn.grid(columnspan = 3)
         
-        self.leadbtn = Button(self,text = "Lead requirement")
+        self.leadbtn = Button(self,text = "Calculate lead requirement")
         self.leadbtn.grid(columnspan = 3)
         
         self.roombtn = Button(self,text = "Show room")
@@ -173,7 +172,7 @@ class Controller:
         print(fn)
         
     def choose_folder(self):
-        fn = filedialog.askdirectory (title = "Select location for created spectrum files")
+        fn = filedialog.askdirectory (title = "Select output folder")
         return fn
         
     def choose_im_fn(self, event):
@@ -224,7 +223,10 @@ class Controller:
             return
         try:
             self.set_factors()
-            pe.make_xraybarr_spectrum_set(self.exi_fn.get(), room_name=self.room_name.get(), output_folder=output_folder)
+            pe.make_xraybarr_spectrum_set(room_name=self.room_name.get(),
+                               output_folder=output_folder,
+                               D=self.D,
+                               exi_fn=None)
             self.update_output('Exported for XRAYBARR','folder: '+output_folder)
         except Exception as e:
             self.update_output('Could not export to XRAYBARR:',str(e))
