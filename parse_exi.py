@@ -930,13 +930,13 @@ class Report:
             self.table.to_excel(self.output_folder + 'results_table.xlsx')
             with open(self.output_folder + 'results_table_latex.txt','w') as f:
                  f.write(self.table.to_latex())
-            factors = get_dose_rescale_factor(self.df, True)
-            factors['total_dap'] = self.df.DAP.sum() * factors['total_rescale_factor']
-            factors['total_mAmin'] = self.df.mAs.sum() * factors['total_rescale_factor'] / 60
-            factors['number_studies'] = np.round(self.df.mAs.count() * factors['total_rescale_factor'])
-            factors['maximum_lead_requirement'] = self.dfr.wall_weight.max()
+            factors = get_dose_rescale_factor(self.D.df, True)
+            factors['total_dap'] = self.D.df.DAP.sum() * factors['total_rescale_factor']
+            factors['total_mAmin'] = self.D.df.mAs.sum() * factors['total_rescale_factor'] / 60
+            factors['number_studies'] = np.round(self.D.df.mAs.count() * factors['total_rescale_factor'])
+            factors['maximum_lead_requirement'] = self.D.dfr.wall_weight.max()
             factors = pd.Series(factors)
-            factors.to_csv('%s/workload_factors_summary.csv' % (output_folder, output_name))
+            factors.to_csv('%s/workload_factors_summary.csv' % (self.output_folder))
 
     def source_workload_plots(self):
         dfp = pd.pivot_table(self.D.df.reset_index(),
